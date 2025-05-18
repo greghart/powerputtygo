@@ -34,53 +34,53 @@ func TestTypeFields(t *testing.T) {
 		privateTimestamps `sqlp:"private,promote"` // Does still work since non-exported embedded struct has exported fields
 	}
 
-	fields, _ := TypeFields(reflect.TypeOf(Person{}))
+	fields, _ := StructFieldsFactory(reflect.TypeOf(Person{}))
 	expected := StructFields{
 		ByColumnName: map[string]*Field{
 			"ID": {
-				Column: "ID",
-				Index:  0,
-				Type:   reflect.TypeOf(0),
+				Column:     "ID",
+				Index:      0,
+				DirectType: reflect.TypeOf(0),
 			},
 			"name": {
-				Column: "name",
-				Tag:    true,
-				Index:  1,
-				Type:   reflect.TypeOf(""),
+				Column:     "name",
+				Tag:        true,
+				Index:      1,
+				DirectType: reflect.TypeOf(""),
 			},
 			"child1": {
-				Column: "child1",
-				Tag:    true,
-				Index:  2,
-				Type:   reflect.TypeOf(Person{}),
+				Column:     "child1",
+				Tag:        true,
+				Index:      2,
+				DirectType: reflect.TypeOf(Person{}),
 			},
 			"child2": {
-				Column: "child2",
-				Tag:    true,
-				Index:  3,
-				Type:   reflect.TypeOf(Person{}),
+				Column:     "child2",
+				Tag:        true,
+				Index:      3,
+				DirectType: reflect.TypeOf(Person{}),
 			},
 			"Timestamps": {
-				Column:  "Timestamps",
-				Tag:     true,
-				Index:   6,
-				Type:    reflect.TypeOf(Timestamps{}),
-				Promote: true,
+				Column:     "Timestamps",
+				Tag:        true,
+				Index:      6,
+				DirectType: reflect.TypeOf(Timestamps{}),
+				IsColumn:   true,
 			},
 			"private": {
-				Column:  "private",
-				Tag:     true,
-				Index:   7,
-				Type:    reflect.TypeOf(privateTimestamps{}),
-				Promote: true,
+				Column:     "private",
+				Tag:        true,
+				Index:      7,
+				DirectType: reflect.TypeOf(privateTimestamps{}),
+				IsColumn:   true,
 			},
 		},
 	}
 	comparer := cmp.Comparer(func(x, y Field) bool {
 		return (x.Column == y.Column &&
 			cmp.Equal(x.Index, y.Index) &&
-			x.Type.Kind() == y.Type.Kind() &&
-			x.Promote == y.Promote)
+			x.DirectType.Kind() == y.DirectType.Kind() &&
+			x.IsColumn == y.IsColumn)
 	})
 	if !cmp.Equal(fields.ByColumnName, expected.ByColumnName, comparer) {
 		t.Errorf("TypeFields returned unexpected fields:\n%s", cmp.Diff(fields.ByColumnName, expected.ByColumnName, comparer))

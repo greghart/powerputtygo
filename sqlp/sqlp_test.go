@@ -3,18 +3,13 @@ package sqlp
 import (
 	"context"
 	"log"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	_ "github.com/mattn/go-sqlite3"
 )
-
-type person struct {
-	ID        int    `sqlp:"id"`
-	FirstName string `sqlp:"first_name"`
-	LastName  string `sqlp:"last_name"`
-}
 
 func TestSqlp_Exec(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
@@ -71,27 +66,61 @@ func TestSqlp_Select(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 
-	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
+	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
+	id, _ := res.LastInsertId()
 	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Albert", "Einstein")
+	db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Johnnie", "Doe", id)
 
-	t.Run("to slice of people", func(t *testing.T) {
+	query := `
+		SELECT 
+			p.id, p.first_name, p.last_name,
+			COALESCE(c.id, 0) AS child_id,
+			COALESCE(c.first_name, "") AS child_first_name,
+			COALESCE(c.last_name, "") AS child_last_name
+		FROM people p
+		LEFT JOIN people c ON p.id = c.parent_id
+		WHERE p.parent_id IS NULL
+		ORDER BY p.id ASC
+	`
+	t.Run("multi table query with embeds and joins", func(t *testing.T) {
 		people := []person{}
-		err := db.Select(ctx, &people, "SELECT id, first_name, last_name FROM people ORDER BY id ASC")
+		err := db.Select(ctx, &people, query)
+		if err != nil {
+			t.Fatalf("failed to select: %v", err)
+		}
+		expected := []person{
+			{
+				ID: 1, FirstName: "John", LastName: "Doe",
+				Child: &person{ID: 3, FirstName: "Lil Johnnie", LastName: "Doe"},
+			},
+			{
+				ID: 2, FirstName: "Albert", LastName: "Einstein",
+			},
+		}
+		if !cmp.Equal(people, expected, personComparer) {
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(people, expected, personComparer))
+		}
+	})
+
+	t.Run("simple one table query", func(t *testing.T) {
+		people := []person{}
+		err := db.Select(ctx, &people, "SELECT id, first_name, last_name FROM people")
 		if err != nil {
 			t.Fatalf("failed to select: %v", err)
 		}
 		expected := []person{
 			{ID: 1, FirstName: "John", LastName: "Doe"},
 			{ID: 2, FirstName: "Albert", LastName: "Einstein"},
+			{ID: 3, FirstName: "Lil Johnnie", LastName: "Doe"},
 		}
-		if !cmp.Equal(people, expected) {
-			t.Fatalf("selected people unexpected:\n%v", cmp.Diff(people, expected))
+		if !cmp.Equal(people, expected, personComparer) {
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(people, expected, personComparer))
 		}
 	})
 
 	t.Run("to slice of people pointers", func(t *testing.T) {
 		people := []*person{}
-		err := db.Select(ctx, &people, "SELECT id, first_name, last_name FROM people ORDER BY id ASC")
+		err := db.Select(ctx, &people, query)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -117,7 +146,17 @@ func testDB(t *testing.T) (*DB, context.Context, func()) {
 	if err != nil {
 		t.Fatalf("testDB failed to drop table: %v", err)
 	}
-	_, err = db.Exec(ctx, "CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT)")
+	_, err = db.Exec(
+		ctx,
+		`
+		CREATE TABLE IF NOT EXISTS people (
+			id INTEGER PRIMARY KEY,
+			first_name TEXT,
+			last_name TEXT,
+			parent_id INTEGER,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`)
 	if err != nil {
 		t.Fatalf("testDB failed to create table: %v", err)
 	}
@@ -126,3 +165,39 @@ func testDB(t *testing.T) (*DB, context.Context, func()) {
 		cancel()
 	}
 }
+
+type person struct {
+	ID        int     `sqlp:"id"`
+	FirstName string  `sqlp:"first_name"`
+	LastName  string  `sqlp:"last_name"`
+	Child     *person `sqlp:"child"`
+	timestamps
+}
+
+type timestamps struct {
+	CreatedAt time.Time `sqlp:"created_at"`
+	UpdatedAt time.Time `sqlp:"updated_at"`
+}
+
+func isWithinDuration(t1 time.Time, t2 time.Time, d time.Duration) bool {
+	return time.Duration(math.Abs(float64(t1.Sub(t2)))) <= d
+}
+
+func _personComparer(x, y person) bool {
+	if !(x.ID == y.ID &&
+		x.FirstName == y.FirstName &&
+		x.LastName == y.LastName &&
+		isWithinDuration(x.CreatedAt, y.CreatedAt, 5*time.Second) &&
+		isWithinDuration(x.UpdatedAt, y.UpdatedAt, 5*time.Second)) {
+		return false
+	}
+	if x.Child == nil && y.Child == nil {
+		return true
+	}
+	if x.Child != nil && y.Child != nil {
+		return _personComparer(*x.Child, *y.Child)
+	}
+	return false
+}
+
+var personComparer = cmp.Comparer(_personComparer)

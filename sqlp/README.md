@@ -1,15 +1,18 @@
 # sqlp
 
 sqlp is a powerputty package to provide extensions to sql.
-Inspired by [sqlx](https://jmoiron.github.io/sqlx/)
+
+Primarily driven from experience trying to consolidate too many ways of "doing the right thing" 
+when it comes to a persistence layer. 
 
 ## Features
 
-* Consistent and single correct path APIs
-* Contextual transactions to let you write tx agnostic methods
-* Reflective scanning support with `DB.Get` and `DB.Select`
+* Consistent and minimal "happy path" APIs
+* Contextual transactions to let you write tx agnostic methods cleanly.
+* Reflective scanning support for more flexible queries without the ORM
   * Including embed support
-* Generics support with `Model`
+* Taken a step further, generics support with `Model`, for ORM-lite behavior without subscribing
+  to a large framework.
 
 ## Examples
 
@@ -54,9 +57,12 @@ support:
   * we want to select a subset of the struct to fill in
 * embedded fields
   * we want to have embedded structs populated by the query results
-* write support -- annotate which fields should "belong" to the table of the struct
-  * by default, only top level fields which aren't sub structs are written
-  * add `write` to override to writing, or `readonly` 
+* write support -- update and insert structs
+  * we want to avoid becoming an ORM, so this is an intentionally thin and basic layer, just
+    helping write concise code for the basic cases
+  * by default, all non-struct type fields are assumed to be direct columns
+  * set `column` tag to set an embedded struct's fields as columns 
+  * set `virtual` tag to remove a non-struct type field as a column
 
 ```go
 type Person struct {
@@ -64,6 +70,8 @@ type Person struct {
   ID int
   // Column specified with struct tag
   Name string `sqlp:"name"`
+  // Column that won't be written in writes, but will be read
+  NumChildren int `sqlp:"num_children,virtual"`
   // Embedded structs should come in `_` separated (configurable)
   // Eg. child1_name, child2_name
   Child1 *Person `sqlp:"child1"`
@@ -83,3 +91,43 @@ type Timestamps struct {
   UpdatedAt time.time `sqlp:"updated_at"`
 }
 ```
+
+## Brainstorm
+
+Brainstorming concerns that influence the design of this module and suggestions.
+
+### Struct Embeds
+
+Having large structs that embed their relationships is a common use case. 
+Eg. our case above, a parent can have a child, but doesn't always, so a pointer to a child is 
+natural (yes it should probably be a slice of children!)
+
+The difficulty lies in scanning when selecting a parent and left joining their children in. 
+* If there is a child, we need to set one up to have  values to scan into
+* If there is not a child, we will have nulls left joined, that have to scan *somewhere*
+
+This packages suggests handling this by utilizing COALESCE in your queries, to let scanning have
+one path. `sqlp` will setup any embed that is being selected into for a query -- it will then
+clean up any of these that were only populated with zero values, using the same `omitzero` / 
+`IsZero() bool` logic as the `json package.
+
+### Field/column/parameter order 
+
+One of the maintainability concerns with using vanilla `sql` is the requirements to keep the order
+of your fields (whether selecting or using args) coordinated. For basic examples this doesn't tend
+to be a problem, but for more advanced queries with tens of fields or arguments, refactoring
+becomes error prone and manual.
+
+TODO: Introduce the params placeholder struct.
+
+### Keep the ingredients simple
+
+Taking inspiration from sqlc, we're not trying to write a non SQL DSL for making queries. Even
+sqlc introduces its' own DSL for macros, like conditional filtering.
+
+We're also not introducing any code gen.
+
+Ideally, you can just write your queries using basic go, and use a couple utility structs to help
+make it maintainable.
+
+TODO: Show our version of query building

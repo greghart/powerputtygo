@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/greghart/powerputtygo/sqlp/reflectp"
+	"github.com/greghart/powerputtygo/sqlp/internal/reflectp"
 )
 
 // DB extends the stdlib sql.DB type to add additional behavior.
@@ -117,45 +117,32 @@ func (db *DB) Select(ctx context.Context, dest any, query string, args ...any) e
 	if elemType.Kind() == reflect.Pointer {
 		return fmt.Errorf("given slice of pointers, wanted a slice of structs")
 	}
-	rv, err := reflectp.TypeFields(elemType)
+	rv, err := reflectp.StructFieldsFactory(elemType)
 	if err != nil {
 		return fmt.Errorf("failed to reflect fields for %T: %w", elemType, err)
 	}
 	destV := reflect.ValueOf(dest).Elem()
 
+	// Run the query
 	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	cols, err := rows.Columns()
+	// Prepare row scanning
+	scan, err := rv.Scanner(rows)
 	if err != nil {
-		return fmt.Errorf("failed to get columns: %w", err)
+		return fmt.Errorf("failed to get scanner: %w", err)
 	}
-	// We know what columns we have, so can pre-calc the indices to exactly what we want now.
-
-	targets := make([]any, len(cols))
 
 	for rows.Next() {
-		val := reflect.New(elemType)
-
-		for i, c := range cols {
-			field, ok := rv.ByColumnName[c]
-			if !ok {
-				return fmt.Errorf("unknown column %s", c)
-			}
-			if field.Type.Kind() == reflect.Struct {
-				return fmt.Errorf("sub structs not supported yet!")
-			}
-			targets[i] = val.Elem().Field(field.Index).Addr().Interface()
-		}
-
-		if err := rows.Scan(targets...); err != nil {
+		val, err := scan()
+		if err != nil {
 			return fmt.Errorf("failed to scan row: %w", err)
 		}
 		destV.Set(reflect.Append(destV, val.Elem()))
 	}
 
-	return nil
+	return rows.Err()
 }
