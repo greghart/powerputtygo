@@ -12,7 +12,7 @@ import (
 
 // Field represents a Field in a struct.
 // Adapted from json package reflection.
-// Key difference is json recursively encodes/decodes, we just need a flattened column centric view.
+// Key difference is json recursively encodes/decodes, we're handling flat tabular data.
 type Field struct {
 	Column string
 
@@ -24,16 +24,16 @@ type Field struct {
 	IsColumn bool // This fields' sub-fields will be promoted to the parent struct.
 
 	// Cached sub fields
-	fields *StructFields // Fields of the struct, if this is a struct.
+	fields *Fields // Fields of the struct, if this is a struct.
 }
 
 // Get the sub fields of this field when it's a struct itself.
-func (f *Field) Fields() *StructFields {
+func (f *Field) Fields() *Fields {
 	if f.fields != nil {
 		return f.fields
 	}
 	if f.DirectType.Kind() == reflect.Struct {
-		fields, _ := StructFieldsFactory(f.DirectType) // nolint:errcheck we pre-touched all structs
+		fields, _ := FieldsFactory(f.DirectType) // nolint:errcheck we pre-touched all structs
 		f.fields = fields
 		return fields
 	}
@@ -42,30 +42,30 @@ func (f *Field) Fields() *StructFields {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// StructFields represents the fields of a struct.
-type StructFields struct {
+// Fields represents the fields of a struct.
+type Fields struct {
 	ByColumnName map[string]*Field
 	Type         reflect.Type
 }
 
 // Internally, all types are stored in a cache to avoid repeated work.
-func StructFieldsFactory(t reflect.Type) (*StructFields, error) {
-	if f, ok := fieldCache.Load(t); ok {
-		return f.(*StructFields), nil
+func FieldsFactory(t reflect.Type) (*Fields, error) {
+	if f, ok := fieldsCache.Load(t); ok {
+		return f.(*Fields), nil
 	}
-	sf, err := newStructFields(t)
+	f, err := newFields(t)
 	if err != nil {
 		return nil, err
 	}
-	f, _ := fieldCache.LoadOrStore(t, sf)
-	return f.(*StructFields), nil
+	fCache, _ := fieldsCache.LoadOrStore(t, f)
+	return fCache.(*Fields), nil
 }
 
-// newStructFields returns the reflected fields of a struct, pre-processed for easier row scanning.
-// newStructFields must be ran on a struct type.
+// newFields returns the reflected fields of a struct, pre-processed for easier row scanning.
+// newFields must be ran on a struct type.
 // Note, this process has to defer some amount of work, since for potentially recursive structs,
 // we can't know how deep to go until there is data to check against.
-func newStructFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*StructFields, error) {
+func newFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Fields, error) {
 	visited := map[reflect.Type]bool{}
 	if len(visited) > 0 {
 		visited = _visited[0]
@@ -123,7 +123,7 @@ func newStructFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Struct
 		}
 		if _, ok := visited[ft]; ft.Kind() == reflect.Struct && !ok {
 			// Recursively touch structs to error early.
-			_, err := newStructFields(ft, visited)
+			_, err := newFields(ft, visited)
 			if err != nil {
 				return nil, fmt.Errorf("failed to process sub struct %s: %w", sf.Name, err)
 			}
@@ -136,56 +136,11 @@ func newStructFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Struct
 		byColumnName[column] = &field
 	}
 
-	return &StructFields{Type: t, ByColumnName: byColumnName}, nil
+	return &Fields{Type: t, ByColumnName: byColumnName}, nil
 }
 
-// Scanner returns a function that can be called instead of `rows.Scan(...)`, which instead
-// returns a value that is built using reflection.
-func (sf *StructFields) Scanner(rows *sql.Rows) (func() (reflect.Value, error), error) {
-	// Pre-calculate targeters we need for given columns
-	cols, err := rows.Columns()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get columns: %w", err)
-	}
-	targets := make([]any, len(cols))             // where fields will scan into, re-used across rows
-	targeters := make([]fieldTargeter, len(cols)) // targeters for each column, pre-calculated
-	for i, c := range cols {
-		t, err := sf.fieldTargeter(c)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get targeter for column %s: %w", c, err)
-		}
-		targeters[i] = *t
-	}
-
-	return func() (reflect.Value, error) {
-		val := reflect.New(sf.Type)
-
-		for i := range cols {
-			targets[i] = targeters[i].targeter(val).Interface()
-		}
-
-		if err := rows.Scan(targets...); err != nil {
-			return reflect.Value{}, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Post process, remove any embedded pointer structs that should be nil-d out
-		// TODO: Not recursive, needs to be?
-		// TODO: Make this more performant -- we can pre-calculate which structs we need to
-		// check nilling out on
-		for i := range cols {
-			root, _, _ := strings.Cut(cols[i], "_")
-			field, ok := sf.ByColumnName[root]
-
-			if ok && field.fields != nil && field.Type.Kind() == reflect.Pointer {
-				elem := direct(val).Field(field.Index).Elem()
-				if elem.IsValid() && elem.IsZero() {
-					direct(val).Field(field.Index).Set(reflect.Zero(field.Type))
-				}
-			}
-		}
-
-		return val, nil
-	}, nil
+func (f *Fields) Rows(rows *sql.Rows) (*FieldsRows, error) {
+	return NewFieldsRows(f, rows)
 }
 
 // targeter is a function that will return a pointer to a field in the given value.
@@ -200,9 +155,43 @@ type fieldTargeter struct {
 // by the given columns?
 // Then it's easy-ish to do both targeters and nilOutZeros in one go.
 
+// traverse traverses the fields of the struct for given columns.
+// Calls cb with all fields matching a column, as well as any intermediate embedded structs.
+// The boolean indicates whether the field is a column directly or not.
+func (f *Fields) traverse(cols []string, cb func(f *Field, b bool)) error {
+	// for i := range cols {
+	// 	field, ok := f.ByColumnName[cols[i]]
+	// 	if ok {
+	// 		cb(field, true)
+	// 	}
+	// 	// Could be a sub field
+	// 	root, rest, _ := strings.Cut(cols[i], "_")
+	// 	field, ok = f.ByColumnName[root]
+	// 	if !ok || field.Fields() == nil {
+	// 		return fmt.Errorf("unknown column %s", cols[i])
+	// 	}
+	// 	// subT, err := field.Fields().fieldTargeter(rest)
+	// 	// if err != nil {
+	// 	// 	return err
+	// 	// }
+	// 	// return &fieldTargeter{
+	// 	// 	field: subT.field,
+	// 	// 	targeter: func(v reflect.Value) reflect.Value {
+	// 	// 		v = direct(v)
+	// 	// 		// Touch the field to ensure it is initialized
+	// 	// 		if v.Field(field.Index).IsZero() {
+	// 	// 			v.Field(field.Index).Set(reflect.New(field.DirectType))
+	// 	// 		}
+	// 	// 		return subT.targeter(v.Field(field.Index))
+	// 	// 	},
+	// 	// }, nil
+	// }
+	return nil
+}
+
 // fieldTargeter returns field for given column, and a targeter to it
-func (sf *StructFields) fieldTargeter(col string) (*fieldTargeter, error) {
-	field, ok := sf.ByColumnName[col]
+func (f *Fields) fieldTargeter(col string) (*fieldTargeter, error) {
+	field, ok := f.ByColumnName[col]
 	if ok {
 		return &fieldTargeter{
 			field: field,
@@ -214,7 +203,7 @@ func (sf *StructFields) fieldTargeter(col string) (*fieldTargeter, error) {
 
 	// Could be a sub field
 	root, rest, _ := strings.Cut(col, "_")
-	field, ok = sf.ByColumnName[root]
+	field, ok = f.ByColumnName[root]
 	if !ok || field.Fields() == nil {
 		return nil, fmt.Errorf("unknown column %s", col)
 	}
@@ -235,14 +224,88 @@ func (sf *StructFields) fieldTargeter(col string) (*fieldTargeter, error) {
 	}, nil
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+// FieldsRows handles scanning rows into given struct field.
+type FieldsRows struct {
+	*sql.Rows
+	fields    *Fields
+	targets   []any
+	targeters []fieldTargeter
+	// Embedded pointer struct fields that are touched by these columns
+	// We should nil out zero values of these fields
+	zeroNilEmbeds []*Field
+}
+
+func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
+	sr := &FieldsRows{
+		Rows:   rows,
+		fields: f,
+	}
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get columns: %w", err)
+	}
+	sr.targets = make([]any, len(cols))             // where fields will scan into, re-used across rows
+	sr.targeters = make([]fieldTargeter, len(cols)) // targeters for each column, pre-calculated
+	for i, c := range cols {
+		t, err := f.fieldTargeter(c)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get targeter for column %s: %w", c, err)
+		}
+		sr.targeters[i] = *t
+	}
+
+	sr.zeroNilEmbeds = []*Field{}
+	byRoot := make(map[string]bool)
+	for i := range cols {
+		root, _, _ := strings.Cut(cols[i], "_")
+		if _, ok := byRoot[root]; ok {
+			continue
+		}
+		byRoot[root] = true
+
+		field, ok := sr.fields.ByColumnName[root]
+
+		if ok && field.Fields() != nil && field.Type.Kind() == reflect.Pointer {
+			sr.zeroNilEmbeds = append(sr.zeroNilEmbeds, field)
+		}
+	}
+
+	return sr, nil
+}
+
+func (sr *FieldsRows) Scan() (reflect.Value, error) {
+	val := reflect.New(sr.fields.Type)
+
+	for i := range sr.targeters {
+		sr.targets[i] = sr.targeters[i].targeter(val).Interface()
+	}
+
+	if err := sr.Rows.Scan(sr.targets...); err != nil {
+		return reflect.Value{}, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	// Post process, remove any embedded pointer structs that should be nil-d out
+	// TODO: Needs to be recursive!
+	for _, field := range sr.zeroNilEmbeds {
+		elem := direct(val).Field(field.Index).Elem()
+		if elem.IsValid() && elem.IsZero() {
+			direct(val).Field(field.Index).Set(reflect.Zero(field.Type))
+		}
+	}
+
+	return val, nil
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 func direct(v reflect.Value) reflect.Value {
 	if v.Kind() == reflect.Pointer {
 		return v.Elem()
 	}
 	return v
 }
-
-////////////////////////////////////////////////////////////////////////////////
 
 // tagOptions is the string following a comma in a struct field's "sqlp"
 // tag, or the empty string. It does not include the leading comma.
@@ -290,20 +353,7 @@ func isValidTag(s string) bool {
 
 var timeType = reflect.TypeOf(time.Time{})
 
-var fieldCache sync.Map // map[reflect.Type]structFields
-
-// cachedTypeFields is like TypeFields but uses a cache to avoid repeated work.
-func cachedTypeFields(t reflect.Type) (*StructFields, error) {
-	if f, ok := fieldCache.Load(t); ok {
-		return f.(*StructFields), nil
-	}
-	sf, err := newStructFields(t)
-	if err != nil {
-		return nil, err
-	}
-	f, _ := fieldCache.LoadOrStore(t, sf)
-	return f.(*StructFields), nil
-}
+var fieldsCache sync.Map // map[reflect.Type]Fields
 
 type isZeroer interface {
 	IsZero() bool

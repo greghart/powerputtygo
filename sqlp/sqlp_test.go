@@ -2,6 +2,7 @@ package sqlp
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"math"
 	"testing"
@@ -69,36 +70,48 @@ func TestSqlp_Select(t *testing.T) {
 	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
 	id, _ := res.LastInsertId()
 	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Albert", "Einstein")
-	db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Johnnie", "Doe", id)
+	res2, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Johnnie", "Doe", id)
+	id2, _ := res2.LastInsertId()
+	db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Lil Johnnie", "Doe", id2)
 
-	query := `
-		SELECT 
-			p.id, p.first_name, p.last_name,
-			COALESCE(c.id, 0) AS child_id,
-			COALESCE(c.first_name, "") AS child_first_name,
-			COALESCE(c.last_name, "") AS child_last_name
-		FROM people p
-		LEFT JOIN people c ON p.id = c.parent_id
-		WHERE p.parent_id IS NULL
-		ORDER BY p.id ASC
-	`
 	t.Run("multi table query with embeds and joins", func(t *testing.T) {
 		people := []person{}
-		err := db.Select(ctx, &people, query)
+		err := db.Select(
+			ctx,
+			&people,
+			`
+				SELECT 
+					p.id, p.first_name, p.last_name,
+					COALESCE(child.id, 0) AS child_id,
+					COALESCE(child.first_name, "") AS child_first_name,
+					COALESCE(child.last_name, "") AS child_last_name,
+					COALESCE(grandchild.id, 0) AS child_child_id,
+					COALESCE(grandchild.first_name, "") AS child_child_first_name,
+					COALESCE(grandchild.last_name, "") AS child_child_last_name
+				FROM people p
+				LEFT JOIN people child ON p.id = child.parent_id
+				LEFT JOIN people grandchild ON child.id = grandchild.parent_id
+				WHERE p.parent_id IS NULL
+				ORDER BY p.id ASC
+			`)
 		if err != nil {
 			t.Fatalf("failed to select: %v", err)
 		}
 		expected := []person{
 			{
 				ID: 1, FirstName: "John", LastName: "Doe",
-				Child: &person{ID: 3, FirstName: "Lil Johnnie", LastName: "Doe"},
+				Child: &person{ID: 3, FirstName: "Lil Johnnie", LastName: "Doe", Child: &person{
+					ID: 4, FirstName: "Lil Lil Johnnie", LastName: "Doe",
+				}},
 			},
 			{
 				ID: 2, FirstName: "Albert", LastName: "Einstein",
 			},
 		}
+		js, _ := json.MarshalIndent(people, "", "  ")
+		t.Logf("people: %v", string(js))
 		if !cmp.Equal(people, expected, personComparer) {
-			t.Errorf("selected people unexpected:\n%v", cmp.Diff(people, expected, personComparer))
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, people, personComparer))
 		}
 	})
 
@@ -112,15 +125,16 @@ func TestSqlp_Select(t *testing.T) {
 			{ID: 1, FirstName: "John", LastName: "Doe"},
 			{ID: 2, FirstName: "Albert", LastName: "Einstein"},
 			{ID: 3, FirstName: "Lil Johnnie", LastName: "Doe"},
+			{ID: 4, FirstName: "Lil Lil Johnnie", LastName: "Doe"},
 		}
 		if !cmp.Equal(people, expected, personComparer) {
-			t.Errorf("selected people unexpected:\n%v", cmp.Diff(people, expected, personComparer))
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, people, personComparer))
 		}
 	})
 
 	t.Run("to slice of people pointers", func(t *testing.T) {
 		people := []*person{}
-		err := db.Select(ctx, &people, query)
+		err := db.Select(ctx, &people, "SELECT id, first_name, last_name FROM people")
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}

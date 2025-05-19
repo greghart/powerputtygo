@@ -117,7 +117,7 @@ func (db *DB) Select(ctx context.Context, dest any, query string, args ...any) e
 	if elemType.Kind() == reflect.Pointer {
 		return fmt.Errorf("given slice of pointers, wanted a slice of structs")
 	}
-	rv, err := reflectp.StructFieldsFactory(elemType)
+	destFields, err := reflectp.FieldsFactory(elemType)
 	if err != nil {
 		return fmt.Errorf("failed to reflect fields for %T: %w", elemType, err)
 	}
@@ -131,13 +131,13 @@ func (db *DB) Select(ctx context.Context, dest any, query string, args ...any) e
 	defer rows.Close()
 
 	// Prepare row scanning
-	scan, err := rv.Scanner(rows)
+	fRows, err := destFields.Rows(rows)
 	if err != nil {
-		return fmt.Errorf("failed to get scanner: %w", err)
+		return fmt.Errorf("failed to get fields rows: %w", err)
 	}
 
 	for rows.Next() {
-		val, err := scan()
+		val, err := fRows.Scan()
 		if err != nil {
 			return fmt.Errorf("failed to scan row: %w", err)
 		}

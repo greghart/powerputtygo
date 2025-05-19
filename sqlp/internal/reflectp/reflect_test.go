@@ -34,8 +34,8 @@ func TestTypeFields(t *testing.T) {
 		privateTimestamps `sqlp:"private,promote"` // Does still work since non-exported embedded struct has exported fields
 	}
 
-	fields, _ := StructFieldsFactory(reflect.TypeOf(Person{}))
-	expected := StructFields{
+	fields, _ := FieldsFactory(reflect.TypeOf(Person{}))
+	expected := Fields{
 		ByColumnName: map[string]*Field{
 			"ID": {
 				Column:     "ID",
@@ -83,6 +83,6 @@ func TestTypeFields(t *testing.T) {
 			x.IsColumn == y.IsColumn)
 	})
 	if !cmp.Equal(fields.ByColumnName, expected.ByColumnName, comparer) {
-		t.Errorf("TypeFields returned unexpected fields:\n%s", cmp.Diff(fields.ByColumnName, expected.ByColumnName, comparer))
+		t.Errorf("TypeFields returned unexpected fields:\n%s", cmp.Diff(expected.ByColumnName, fields.ByColumnName, comparer))
 	}
 }
