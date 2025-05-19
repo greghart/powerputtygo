@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 )
 
@@ -23,7 +22,7 @@ type Field struct {
 	DirectType reflect.Type // Direct type of field, equal to Type unless pointer
 	Type       reflect.Type
 
-	IsColumn bool // This fields' sub-fields will be promoted to the parent struct.
+	IsColumn bool // This fields' sub-fields will be considered columns of the parent table.
 
 	// Cached sub fields
 	fields *Fields // Fields of the struct, if this is a struct.
@@ -121,7 +120,7 @@ func newFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Fields, erro
 			Index:      i,
 			DirectType: ft,
 			Type:       sf.Type,
-			IsColumn:   (opts.Contains("promote") || (sf.Anonymous && !tagged)) && ft.Kind() == reflect.Struct,
+			IsColumn:   (opts.Contains("column") || (sf.Anonymous && !tagged)) && ft.Kind() == reflect.Struct,
 		}
 		if _, ok := visited[ft]; ft.Kind() == reflect.Struct && !ok {
 			// Recursively touch structs to error early.
@@ -144,6 +143,8 @@ func newFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Fields, erro
 func (f *Fields) Rows(rows *sql.Rows) (*FieldsRows, error) {
 	return NewFieldsRows(f, rows)
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 // traverse traverses the fields of the struct for given columns.
 // Also triggers for intermediate fields (eg. triggers for Child field if requesting child_id).
@@ -169,7 +170,7 @@ func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), 
 		}
 		path2 := append(path[:], field.Index)
 		// Traverse nested first
-		if err := field.fields.traverse([]string{rest}, cb, path2); err != nil {
+		if err := field.Fields().traverse([]string{rest}, cb, path2); err != nil {
 			return err
 		}
 		cb(field, path2, false)
@@ -177,10 +178,10 @@ func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), 
 	return nil
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 // targeter is a function that will return a pointer to a field in the given value.
 type targeter func(strct reflect.Value) (fieldPtr reflect.Value)
+
+////////////////////////////////////////////////////////////////////////////////
 
 // FieldsRows handles scanning rows into given struct field.
 type FieldsRows struct {
@@ -189,10 +190,10 @@ type FieldsRows struct {
 	targets []any
 	// Target the fields in our final struct
 	targeters []targeter
-	// Paths to embedded fields that should be nil checked.
+	// Paths to sub struct fields that should be nil checked.
 	// Nil check meaning to see if we ended up not scanning any data, we can nil out the 0 values
 	// that were setup for scanning.
-	zeroNilEmbeds [][]int
+	zeroNilFields [][]int
 }
 
 func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
@@ -207,11 +208,11 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 		targeters: make([]targeter, len(cols)),
 	}
 	// Pre-calculate targeters and zero nil-checks
-	embedsByField := map[string][]int{}
+	subStructsByField := map[string][]int{}
 	i := 0
 	err = f.traverse(cols, func(field *Field, path []int, isColumn bool) {
 		if !isColumn {
-			embedsByField[strings.Join(strings.Fields(fmt.Sprint(path)), ",")] = path
+			subStructsByField[strings.Join(strings.Fields(fmt.Sprint(path)), ",")] = path
 			return
 		}
 		if len(path) == 1 {
@@ -236,12 +237,12 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 		}
 		i++
 	})
-	// Sort embeds by deepest path first
+	// Sort sub-structs by deepest path first
 	// This ensures descendants are nil'd out first so ancestor can correctly nil out as well.
-	for _, path := range embedsByField {
-		sr.zeroNilEmbeds = append(sr.zeroNilEmbeds, path)
+	for _, path := range subStructsByField {
+		sr.zeroNilFields = append(sr.zeroNilFields, path)
 	}
-	slices.SortFunc(sr.zeroNilEmbeds, func(a, b []int) int {
+	slices.SortFunc(sr.zeroNilFields, func(a, b []int) int {
 		return cmp.Compare(len(b), len(a))
 	})
 
@@ -259,13 +260,13 @@ func (sr *FieldsRows) Scan() (reflect.Value, error) {
 		return reflect.Value{}, fmt.Errorf("failed to scan row: %w", err)
 	}
 
-	// Post process, remove any embedded pointer structs that should be nil-d out
-	for _, path := range sr.zeroNilEmbeds {
+	// Post process, remove any pointer structs that should be nil-d out
+	for _, path := range sr.zeroNilFields {
 		v := val
 		for _, i := range path {
 			v = reflect.Indirect(v).Field(i)
 		}
-		elem := v.Elem() // trust setup, embeds will be pointers
+		elem := v.Elem() // trust setup, will be pointers
 		if elem.IsValid() && elem.IsZero() {
 			v.Set(reflect.Zero(v.Type()))
 		}
@@ -320,15 +321,7 @@ func isValidTag(s string) bool {
 	return true
 }
 
-var timeType = reflect.TypeOf(time.Time{})
-
 var fieldsCache sync.Map // map[reflect.Type]Fields
-
-type isZeroer interface {
-	IsZero() bool
-}
-
-var isZeroerType = reflect.TypeFor[isZeroer]()
 
 func deref(t reflect.Type) reflect.Type {
 	if t.Kind() == reflect.Ptr {

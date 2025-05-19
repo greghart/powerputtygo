@@ -2,9 +2,10 @@ package sqlp
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"log"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ func TestSqlp_Exec(t *testing.T) {
 func TestSqlp_Query(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
-	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
+	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe") // nolint:errcheck
 
 	rows, err := db.Query(ctx, "SELECT id, first_name, last_name FROM people WHERE first_name = ?", "John")
 	if err != nil {
@@ -44,7 +45,6 @@ func TestSqlp_Query(t *testing.T) {
 		if err := rows.Scan(&p.ID, &p.FirstName, &p.LastName); err != nil {
 			t.Fatalf("failed to scan row: %v", err)
 		}
-		t.Logf("person: %v", p)
 	}
 	if err := rows.Err(); err != nil {
 		log.Fatal(err)
@@ -54,7 +54,7 @@ func TestSqlp_Query(t *testing.T) {
 func TestSqlp_QueryRow(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
-	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
+	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe") // nolint:errcheck
 
 	row := db.QueryRow(ctx, "SELECT id, first_name, last_name FROM people WHERE first_name = ?", "John")
 	var p person
@@ -69,44 +69,15 @@ func TestSqlp_Select(t *testing.T) {
 
 	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
 	id, _ := res.LastInsertId()
-	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Albert", "Einstein")
+	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Albert", "Einstein") // nolint:errcheck
 	res2, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Johnnie", "Doe", id)
 	id2, _ := res2.LastInsertId()
-	db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Lil Johnnie", "Doe", id2)
-	db.Exec(ctx, "INSERT INTO pets (name, type, parent_id) VALUES (?, ?, ?)", "Eevee", "Dog", id2)
+	db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Lil Johnnie", "Doe", id2) // nolint:errcheck
+	db.Exec(ctx, "INSERT INTO pets (name, type, parent_id) VALUES (?, ?, ?)", "Eevee", "Dog", id2)                        // nolint:errcheck
 
-	t.Run("multi table query with embeds and joins", func(t *testing.T) {
+	t.Run("multi table query with joins", func(t *testing.T) {
 		people := []person{}
-		err := db.Select(
-			ctx,
-			&people,
-			`
-				SELECT 
-					p.id, p.first_name, p.last_name,
-					COALESCE(child.id, 0) AS child_id,
-					COALESCE(child.first_name, "") AS child_first_name,
-					COALESCE(child.last_name, "") AS child_last_name,
-					COALESCE(grandchild.id, 0) AS child_child_id,
-					COALESCE(grandchild.first_name, "") AS child_child_first_name,
-					COALESCE(grandchild.last_name, "") AS child_child_last_name,
-					COALESCE(pet.id, 0) AS pet_id,
-					COALESCE(pet.name, "") AS pet_name,
-					COALESCE(pet.type, "") AS pet_type,
-					COALESCE(child_pet.id, 0) AS child_pet_id,
-					COALESCE(child_pet.name, "") AS child_pet_name,
-					COALESCE(child_pet.type, "") AS child_pet_type,
-					COALESCE(grandchild_pet.id, 0) AS child_child_pet_id,
-					COALESCE(grandchild_pet.name, "") AS child_child_pet_name,
-					COALESCE(grandchild_pet.type, "") AS child_child_pet_type
-				FROM people p
-				LEFT JOIN people child ON p.id = child.parent_id
-				LEFT JOIN people grandchild ON child.id = grandchild.parent_id
-				LEFT JOIN pets pet ON p.id = pet.parent_id
-				LEFT JOIN pets child_pet ON child.id = child_pet.parent_id
-				LEFT JOIN pets grandchild_pet ON grandchild.id = grandchild_pet.parent_id
-				WHERE p.parent_id IS NULL
-				ORDER BY p.id ASC
-			`)
+		err := db.Select(ctx, &people, selectGrandchildrenAndPets())
 		if err != nil {
 			t.Fatalf("failed to select: %v", err)
 		}
@@ -125,8 +96,6 @@ func TestSqlp_Select(t *testing.T) {
 				ID: 2, FirstName: "Albert", LastName: "Einstein",
 			},
 		}
-		js, _ := json.MarshalIndent(people, "", "  ")
-		t.Logf("people: %v", string(js))
 		if !cmp.Equal(people, expected, personComparer) {
 			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, people, personComparer))
 		}
@@ -156,6 +125,98 @@ func TestSqlp_Select(t *testing.T) {
 			t.Fatalf("expected error, got nil")
 		}
 	})
+}
+
+func TestSqlp_Get(t *testing.T) {
+	db, ctx, cleanup := testDB(t)
+	defer cleanup()
+
+	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
+	id, _ := res.LastInsertId()
+	res2, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Johnnie", "Doe", id)
+	id2, _ := res2.LastInsertId()
+	db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Lil Johnnie", "Doe", id2) // nolint:errcheck
+	db.Exec(ctx, "INSERT INTO pets (name, type, parent_id) VALUES (?, ?, ?)", "Eevee", "Dog", id2)                        // nolint:errcheck
+
+	t.Run("multi table query joins", func(t *testing.T) {
+		p := person{}
+		err := db.Get(ctx, &p, selectGrandchildrenAndPets("p.id = ?"), id)
+		if err != nil {
+			t.Fatalf("failed to get: %v", err)
+		}
+		expected := person{
+			ID: 1, FirstName: "John", LastName: "Doe",
+			Child: &person{
+				ID: 2, FirstName: "Lil Johnnie", LastName: "Doe",
+				Child: &person{
+					ID: 3, FirstName: "Lil Lil Johnnie", LastName: "Doe",
+				},
+				Pet: &pet{ID: 1, Name: "Eevee", Type: "Dog"},
+			},
+		}
+		if !cmp.Equal(p, expected, personComparer) {
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, p, personComparer))
+		}
+	})
+
+	t.Run("simple one table query", func(t *testing.T) {
+		p := person{}
+		err := db.Get(ctx, &p, "SELECT id, first_name, last_name FROM people")
+		if err != nil {
+			t.Fatalf("failed to get: %v", err)
+		}
+		expected := person{ID: 1, FirstName: "John", LastName: "Doe"}
+		if !cmp.Equal(p, expected, personComparer) {
+			t.Errorf("gotten person unexpected:\n%v", cmp.Diff(expected, p, personComparer))
+		}
+	})
+
+	t.Run("to slice of people pointers", func(t *testing.T) {
+		people := []*person{}
+		err := db.Select(ctx, &people, "SELECT id, first_name, last_name FROM people")
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+// Not using query helpers since those shouldn't be tested as part of these tests
+func selectGrandchildrenAndPets(_wheres ...string) string {
+	wheres := []string{"1=1"}
+	if len(_wheres) > 0 {
+		wheres = _wheres
+	}
+	return fmt.Sprintf(
+		`
+		SELECT 
+			p.id, p.first_name, p.last_name,
+			COALESCE(child.id, 0) AS child_id,
+			COALESCE(child.first_name, "") AS child_first_name,
+			COALESCE(child.last_name, "") AS child_last_name,
+			COALESCE(grandchild.id, 0) AS child_child_id,
+			COALESCE(grandchild.first_name, "") AS child_child_first_name,
+			COALESCE(grandchild.last_name, "") AS child_child_last_name,
+			COALESCE(pet.id, 0) AS pet_id,
+			COALESCE(pet.name, "") AS pet_name,
+			COALESCE(pet.type, "") AS pet_type,
+			COALESCE(child_pet.id, 0) AS child_pet_id,
+			COALESCE(child_pet.name, "") AS child_pet_name,
+			COALESCE(child_pet.type, "") AS child_pet_type,
+			COALESCE(grandchild_pet.id, 0) AS child_child_pet_id,
+			COALESCE(grandchild_pet.name, "") AS child_child_pet_name,
+			COALESCE(grandchild_pet.type, "") AS child_child_pet_type
+		FROM people p
+		LEFT JOIN people child ON p.id = child.parent_id
+		LEFT JOIN people grandchild ON child.id = grandchild.parent_id
+		LEFT JOIN pets pet ON p.id = pet.parent_id
+		LEFT JOIN pets child_pet ON child.id = child_pet.parent_id
+		LEFT JOIN pets grandchild_pet ON grandchild.id = grandchild_pet.parent_id
+		WHERE p.parent_id IS NULL AND (%s)
+		ORDER BY p.id ASC
+		`,
+		strings.Join(wheres, " AND "))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -205,11 +266,12 @@ func testDB(t *testing.T) (*DB, context.Context, func()) {
 }
 
 type person struct {
-	ID        int     `sqlp:"id"`
-	FirstName string  `sqlp:"first_name"`
-	LastName  string  `sqlp:"last_name"`
-	Child     *person `sqlp:"child"`
-	Pet       *pet    `sqlp:"pet"`
+	ID          int     `sqlp:"id"`
+	NumChildren int     `sqlp:"num_children"`
+	FirstName   string  `sqlp:"first_name"`
+	LastName    string  `sqlp:"last_name"`
+	Child       *person `sqlp:"child"`
+	Pet         *pet    `sqlp:"pet"`
 	timestamps
 }
 

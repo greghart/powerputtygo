@@ -10,7 +10,7 @@ when it comes to a persistence layer.
 * Consistent and minimal "happy path" APIs
 * Contextual transactions to let you write tx agnostic methods cleanly.
 * Reflective scanning support for more flexible queries without the ORM
-  * Including embed support
+  * Including nested struct and embedded struct support
 * Taken a step further, generics support with `Model`, for ORM-lite behavior without subscribing
   to a large framework.
 
@@ -60,7 +60,8 @@ support:
 * write support -- update and insert structs
   * we want to avoid becoming an ORM, so this is an intentionally thin and basic layer, just
     helping write concise code for the basic cases
-  * by default, all non-struct type fields are assumed to be direct columns
+  * by default, all non-struct type fields are assumed to be direct columns, as well as fields
+    of embedded structs
   * set `column` tag to set a struct's fields as columns 
   * set `virtual` tag to remove a non-struct type field as a column
 
@@ -72,16 +73,16 @@ type Person struct {
   Name string `sqlp:"name"`
   // Column that won't be written in writes, but will be read
   NumChildren int `sqlp:"num_children,virtual"`
-  // Embedded structs should come in `_` separated (configurable)
+  // structs should come in `_` separated (configurable)
   // Eg. child1_name, child2_name
   Child1 *Person `sqlp:"child1"`
   Child2 *Person `sqlp:"child2"`
   Ignore *Person `sqlp:"-"` // will never be scanned
   unexported *Person // Not reflectable
-  // Anonymous structs not prefixed or separated at all
   // Collisions will error
-  Timestamps `sqlp:,column`
-  privateTimestamps // Does still work since non-exported embedded struct has exported fields
+  Timestamps Timestamps `sqlp:timestamps,column`
+  // Embedded structs are assumed to be columns by default (ie. will write in updates/inserts)
+  privateTimestamps // note non-exported embedded struct still has exported fields
 }
 
 type privateTimestamps Timestamps
@@ -96,20 +97,19 @@ type Timestamps struct {
 
 Brainstorming concerns that influence the design of this module and suggestions.
 
-### Struct Embeds
+### Sub structs
 
-Having large structs that embed their relationships is a common use case. 
+Having large structs that with sub-structs as relationships is a common use case. 
 Eg. our case above, a parent can have a child, but doesn't always, so a pointer to a child is 
 natural (yes it should probably be a slice of children!)
 
 The difficulty lies in scanning when selecting a parent and left joining their children in. 
-* If there is a child, we need to set one up to have  values to scan into
+* If there is a child, we need to set one up to have values to scan into
 * If there is not a child, we will have nulls left joined, that have to scan *somewhere*
 
 This packages suggests handling this by utilizing COALESCE in your queries, to let scanning have
 one path. `sqlp` will setup any embed that is being selected into for a query -- it will then
-clean up any of these that were only populated with zero values, using the same `omitzero` / 
-`IsZero() bool` logic as the `json package.
+clean up any of these that were only populated with zero values.
 
 ### Field/column/parameter order 
 
