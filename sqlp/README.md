@@ -55,13 +55,13 @@ support:
   * we want to allow custom mapping of columns to fields, in cases where order doesn't match
 * partial select 
   * we want to select a subset of the struct to fill in
-* embedded fields
-  * we want to have embedded structs populated by the query results
+* recursive struct fields
+  * we want to have struct fields themselves populated by the query results
 * write support -- update and insert structs
   * we want to avoid becoming an ORM, so this is an intentionally thin and basic layer, just
     helping write concise code for the basic cases
   * by default, all non-struct type fields are assumed to be direct columns
-  * set `column` tag to set an embedded struct's fields as columns 
+  * set `column` tag to set a struct's fields as columns 
   * set `virtual` tag to remove a non-struct type field as a column
 
 ```go
@@ -80,7 +80,7 @@ type Person struct {
   unexported *Person // Not reflectable
   // Anonymous structs not prefixed or separated at all
   // Collisions will error
-  Timestamps `sqlp:,write`
+  Timestamps `sqlp:,column`
   privateTimestamps // Does still work since non-exported embedded struct has exported fields
 }
 

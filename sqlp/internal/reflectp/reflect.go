@@ -1,9 +1,11 @@
 package reflectp
 
 import (
+	"cmp"
 	"database/sql"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -143,143 +145,114 @@ func (f *Fields) Rows(rows *sql.Rows) (*FieldsRows, error) {
 	return NewFieldsRows(f, rows)
 }
 
-// targeter is a function that will return a pointer to a field in the given value.
-type targeter func(strct reflect.Value) (fieldPtr reflect.Value)
-
-type fieldTargeter struct {
-	field    *Field
-	targeter targeter
-}
-
-// TODO: Can we add a field traversal method, that traverses all fields that are touched
-// by the given columns?
-// Then it's easy-ish to do both targeters and nilOutZeros in one go.
-
 // traverse traverses the fields of the struct for given columns.
-// Calls cb with all fields matching a column, as well as any intermediate embedded structs.
-// The boolean indicates whether the field is a column directly or not.
-func (f *Fields) traverse(cols []string, cb func(f *Field, b bool)) error {
-	// for i := range cols {
-	// 	field, ok := f.ByColumnName[cols[i]]
-	// 	if ok {
-	// 		cb(field, true)
-	// 	}
-	// 	// Could be a sub field
-	// 	root, rest, _ := strings.Cut(cols[i], "_")
-	// 	field, ok = f.ByColumnName[root]
-	// 	if !ok || field.Fields() == nil {
-	// 		return fmt.Errorf("unknown column %s", cols[i])
-	// 	}
-	// 	// subT, err := field.Fields().fieldTargeter(rest)
-	// 	// if err != nil {
-	// 	// 	return err
-	// 	// }
-	// 	// return &fieldTargeter{
-	// 	// 	field: subT.field,
-	// 	// 	targeter: func(v reflect.Value) reflect.Value {
-	// 	// 		v = direct(v)
-	// 	// 		// Touch the field to ensure it is initialized
-	// 	// 		if v.Field(field.Index).IsZero() {
-	// 	// 			v.Field(field.Index).Set(reflect.New(field.DirectType))
-	// 	// 		}
-	// 	// 		return subT.targeter(v.Field(field.Index))
-	// 	// 	},
-	// 	// }, nil
-	// }
+// Also triggers for intermediate fields (eg. triggers for Child field if requesting child_id).
+// Calls cb with all fields matching a column, their full struct path, and whether it's a column
+// (true) or an intermediate field (false).
+func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), _path ...[]int) error {
+	path := []int{}
+	if len(_path) > 0 {
+		path = _path[0]
+	}
+
+	for i := range cols {
+		field, ok := f.ByColumnName[cols[i]]
+		if ok {
+			cb(field, append(path[:], field.Index), true)
+			continue
+		}
+		// Could be a sub field
+		root, rest, _ := strings.Cut(cols[i], "_")
+		field, ok = f.ByColumnName[root]
+		if !ok || field.Fields() == nil {
+			return fmt.Errorf("unknown column %s (on path %v)", cols[i], path)
+		}
+		path2 := append(path[:], field.Index)
+		// Traverse nested first
+		if err := field.fields.traverse([]string{rest}, cb, path2); err != nil {
+			return err
+		}
+		cb(field, path2, false)
+	}
 	return nil
-}
-
-// fieldTargeter returns field for given column, and a targeter to it
-func (f *Fields) fieldTargeter(col string) (*fieldTargeter, error) {
-	field, ok := f.ByColumnName[col]
-	if ok {
-		return &fieldTargeter{
-			field: field,
-			targeter: func(v reflect.Value) reflect.Value {
-				return direct(v).Field(field.Index).Addr()
-			},
-		}, nil
-	}
-
-	// Could be a sub field
-	root, rest, _ := strings.Cut(col, "_")
-	field, ok = f.ByColumnName[root]
-	if !ok || field.Fields() == nil {
-		return nil, fmt.Errorf("unknown column %s", col)
-	}
-	subT, err := field.Fields().fieldTargeter(rest)
-	if err != nil {
-		return nil, err
-	}
-	return &fieldTargeter{
-		field: subT.field,
-		targeter: func(v reflect.Value) reflect.Value {
-			v = direct(v)
-			// Touch the field to ensure it is initialized
-			if v.Field(field.Index).IsZero() {
-				v.Field(field.Index).Set(reflect.New(field.DirectType))
-			}
-			return subT.targeter(v.Field(field.Index))
-		},
-	}, nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// targeter is a function that will return a pointer to a field in the given value.
+type targeter func(strct reflect.Value) (fieldPtr reflect.Value)
+
 // FieldsRows handles scanning rows into given struct field.
 type FieldsRows struct {
 	*sql.Rows
-	fields    *Fields
-	targets   []any
-	targeters []fieldTargeter
-	// Embedded pointer struct fields that are touched by these columns
-	// We should nil out zero values of these fields
-	zeroNilEmbeds []*Field
+	fields  *Fields
+	targets []any
+	// Target the fields in our final struct
+	targeters []targeter
+	// Paths to embedded fields that should be nil checked.
+	// Nil check meaning to see if we ended up not scanning any data, we can nil out the 0 values
+	// that were setup for scanning.
+	zeroNilEmbeds [][]int
 }
 
 func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
-	sr := &FieldsRows{
-		Rows:   rows,
-		fields: f,
-	}
 	cols, err := rows.Columns()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get columns: %w", err)
 	}
-	sr.targets = make([]any, len(cols))             // where fields will scan into, re-used across rows
-	sr.targeters = make([]fieldTargeter, len(cols)) // targeters for each column, pre-calculated
-	for i, c := range cols {
-		t, err := f.fieldTargeter(c)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get targeter for column %s: %w", c, err)
-		}
-		sr.targeters[i] = *t
+	sr := &FieldsRows{
+		Rows:      rows,
+		fields:    f,
+		targets:   make([]any, len(cols)),
+		targeters: make([]targeter, len(cols)),
 	}
-
-	sr.zeroNilEmbeds = []*Field{}
-	byRoot := make(map[string]bool)
-	for i := range cols {
-		root, _, _ := strings.Cut(cols[i], "_")
-		if _, ok := byRoot[root]; ok {
-			continue
+	// Pre-calculate targeters and zero nil-checks
+	embedsByField := map[string][]int{}
+	i := 0
+	err = f.traverse(cols, func(field *Field, path []int, isColumn bool) {
+		if !isColumn {
+			embedsByField[strings.Join(strings.Fields(fmt.Sprint(path)), ",")] = path
+			return
 		}
-		byRoot[root] = true
-
-		field, ok := sr.fields.ByColumnName[root]
-
-		if ok && field.Fields() != nil && field.Type.Kind() == reflect.Pointer {
-			sr.zeroNilEmbeds = append(sr.zeroNilEmbeds, field)
+		if len(path) == 1 {
+			sr.targeters[i] = func(v reflect.Value) reflect.Value {
+				return reflect.Indirect(v).Field(path[0]).Addr()
+			}
+		} else {
+			sr.targeters[i] = func(v reflect.Value) reflect.Value {
+				for _, i := range path {
+					v = reflect.Indirect(v).Field(i)
+					// if this is a pointer and it's nil, allocate a new value and set it
+					if v.Kind() == reflect.Ptr && v.IsNil() {
+						alloc := reflect.New(deref(v.Type()))
+						v.Set(alloc)
+					}
+					if v.Kind() == reflect.Map && v.IsNil() {
+						v.Set(reflect.MakeMap(v.Type()))
+					}
+				}
+				return v.Addr()
+			}
 		}
+		i++
+	})
+	// Sort embeds by deepest path first
+	// This ensures descendants are nil'd out first so ancestor can correctly nil out as well.
+	for _, path := range embedsByField {
+		sr.zeroNilEmbeds = append(sr.zeroNilEmbeds, path)
 	}
+	slices.SortFunc(sr.zeroNilEmbeds, func(a, b []int) int {
+		return cmp.Compare(len(b), len(a))
+	})
 
-	return sr, nil
+	return sr, err
 }
 
 func (sr *FieldsRows) Scan() (reflect.Value, error) {
 	val := reflect.New(sr.fields.Type)
 
 	for i := range sr.targeters {
-		sr.targets[i] = sr.targeters[i].targeter(val).Interface()
+		sr.targets[i] = sr.targeters[i](val).Interface()
 	}
 
 	if err := sr.Rows.Scan(sr.targets...); err != nil {
@@ -287,11 +260,14 @@ func (sr *FieldsRows) Scan() (reflect.Value, error) {
 	}
 
 	// Post process, remove any embedded pointer structs that should be nil-d out
-	// TODO: Needs to be recursive!
-	for _, field := range sr.zeroNilEmbeds {
-		elem := direct(val).Field(field.Index).Elem()
+	for _, path := range sr.zeroNilEmbeds {
+		v := val
+		for _, i := range path {
+			v = reflect.Indirect(v).Field(i)
+		}
+		elem := v.Elem() // trust setup, embeds will be pointers
 		if elem.IsValid() && elem.IsZero() {
-			direct(val).Field(field.Index).Set(reflect.Zero(field.Type))
+			v.Set(reflect.Zero(v.Type()))
 		}
 	}
 
@@ -299,13 +275,6 @@ func (sr *FieldsRows) Scan() (reflect.Value, error) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-func direct(v reflect.Value) reflect.Value {
-	if v.Kind() == reflect.Pointer {
-		return v.Elem()
-	}
-	return v
-}
 
 // tagOptions is the string following a comma in a struct field's "sqlp"
 // tag, or the empty string. It does not include the leading comma.
@@ -360,3 +329,10 @@ type isZeroer interface {
 }
 
 var isZeroerType = reflect.TypeFor[isZeroer]()
+
+func deref(t reflect.Type) reflect.Type {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t
+}

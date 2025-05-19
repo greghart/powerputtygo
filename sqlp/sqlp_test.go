@@ -73,6 +73,7 @@ func TestSqlp_Select(t *testing.T) {
 	res2, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Johnnie", "Doe", id)
 	id2, _ := res2.LastInsertId()
 	db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Lil Johnnie", "Doe", id2)
+	db.Exec(ctx, "INSERT INTO pets (name, type, parent_id) VALUES (?, ?, ?)", "Eevee", "Dog", id2)
 
 	t.Run("multi table query with embeds and joins", func(t *testing.T) {
 		people := []person{}
@@ -87,10 +88,22 @@ func TestSqlp_Select(t *testing.T) {
 					COALESCE(child.last_name, "") AS child_last_name,
 					COALESCE(grandchild.id, 0) AS child_child_id,
 					COALESCE(grandchild.first_name, "") AS child_child_first_name,
-					COALESCE(grandchild.last_name, "") AS child_child_last_name
+					COALESCE(grandchild.last_name, "") AS child_child_last_name,
+					COALESCE(pet.id, 0) AS pet_id,
+					COALESCE(pet.name, "") AS pet_name,
+					COALESCE(pet.type, "") AS pet_type,
+					COALESCE(child_pet.id, 0) AS child_pet_id,
+					COALESCE(child_pet.name, "") AS child_pet_name,
+					COALESCE(child_pet.type, "") AS child_pet_type,
+					COALESCE(grandchild_pet.id, 0) AS child_child_pet_id,
+					COALESCE(grandchild_pet.name, "") AS child_child_pet_name,
+					COALESCE(grandchild_pet.type, "") AS child_child_pet_type
 				FROM people p
 				LEFT JOIN people child ON p.id = child.parent_id
 				LEFT JOIN people grandchild ON child.id = grandchild.parent_id
+				LEFT JOIN pets pet ON p.id = pet.parent_id
+				LEFT JOIN pets child_pet ON child.id = child_pet.parent_id
+				LEFT JOIN pets grandchild_pet ON grandchild.id = grandchild_pet.parent_id
 				WHERE p.parent_id IS NULL
 				ORDER BY p.id ASC
 			`)
@@ -100,9 +113,13 @@ func TestSqlp_Select(t *testing.T) {
 		expected := []person{
 			{
 				ID: 1, FirstName: "John", LastName: "Doe",
-				Child: &person{ID: 3, FirstName: "Lil Johnnie", LastName: "Doe", Child: &person{
-					ID: 4, FirstName: "Lil Lil Johnnie", LastName: "Doe",
-				}},
+				Child: &person{
+					ID: 3, FirstName: "Lil Johnnie", LastName: "Doe",
+					Child: &person{
+						ID: 4, FirstName: "Lil Lil Johnnie", LastName: "Doe",
+					},
+					Pet: &pet{ID: 1, Name: "Eevee", Type: "Dog"},
+				},
 			},
 			{
 				ID: 2, FirstName: "Albert", LastName: "Einstein",
@@ -156,7 +173,7 @@ func testDB(t *testing.T) (*DB, context.Context, func()) {
 		t.Fatalf("testDB failed to ping: %v", err)
 	}
 	// Setup a test table for the tests.
-	_, err = db.Exec(ctx, "DROP TABLE IF EXISTS people")
+	_, err = db.Exec(ctx, "DROP TABLE IF EXISTS people; DROP TABLE IF EXISTS pets")
 	if err != nil {
 		t.Fatalf("testDB failed to drop table: %v", err)
 	}
@@ -170,6 +187,13 @@ func testDB(t *testing.T) (*DB, context.Context, func()) {
 			parent_id INTEGER,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+		;
+		CREATE TABLE IF NOT EXISTS pets (
+			id INTEGER PRIMARY KEY,
+			name TEXT,
+			type TEXT,
+			parent_id INTEGER
 		)`)
 	if err != nil {
 		t.Fatalf("testDB failed to create table: %v", err)
@@ -185,7 +209,14 @@ type person struct {
 	FirstName string  `sqlp:"first_name"`
 	LastName  string  `sqlp:"last_name"`
 	Child     *person `sqlp:"child"`
+	Pet       *pet    `sqlp:"pet"`
 	timestamps
+}
+
+type pet struct {
+	ID   int    `sqlp:"id"`
+	Name string `sqlp:"name"`
+	Type string `sqlp:"type"`
 }
 
 type timestamps struct {
@@ -197,21 +228,30 @@ func isWithinDuration(t1 time.Time, t2 time.Time, d time.Duration) bool {
 	return time.Duration(math.Abs(float64(t1.Sub(t2)))) <= d
 }
 
+func _ptrComparer[T any](x, y *T, cmp func(a, b T) bool) bool {
+	if x == nil && y == nil {
+		return true
+	}
+	if x != nil && y != nil {
+		return cmp(*x, *y)
+	}
+	return false
+}
+
+func _petComparer(x, y pet) bool {
+	return (x.ID == y.ID &&
+		x.Name == y.Name &&
+		x.Type == y.Type)
+}
+
 func _personComparer(x, y person) bool {
-	if !(x.ID == y.ID &&
+	return (x.ID == y.ID &&
 		x.FirstName == y.FirstName &&
 		x.LastName == y.LastName &&
 		isWithinDuration(x.CreatedAt, y.CreatedAt, 5*time.Second) &&
-		isWithinDuration(x.UpdatedAt, y.UpdatedAt, 5*time.Second)) {
-		return false
-	}
-	if x.Child == nil && y.Child == nil {
-		return true
-	}
-	if x.Child != nil && y.Child != nil {
-		return _personComparer(*x.Child, *y.Child)
-	}
-	return false
+		isWithinDuration(x.UpdatedAt, y.UpdatedAt, 5*time.Second) &&
+		_ptrComparer(x.Child, y.Child, _personComparer) &&
+		_ptrComparer(x.Pet, y.Pet, _petComparer))
 }
 
 var personComparer = cmp.Comparer(_personComparer)
