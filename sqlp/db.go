@@ -68,10 +68,11 @@ func (db *DB) RunInTx(ctx context.Context, fn func(context.Context) error) error
 	tx := db.txContext(ctx)
 	// Setup new tx as needed.
 	if tx == nil {
-		tx, err := db.DB.BeginTx(ctx, nil)
+		_tx, err := db.DB.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
+		tx = _tx
 		defer func() {
 			err := tx.Rollback()
 			if err != nil && err != sql.ErrTxDone {
@@ -133,12 +134,13 @@ func (db *DB) Get(ctx context.Context, dest any, query string, args ...any) erro
 		return fmt.Errorf("failed to get fields rows: %w", err)
 	}
 
-	fRows.Next()
-	val, err := fRows.Scan()
-	if err != nil {
-		return fmt.Errorf("failed to scan row: %w", err)
+	if fRows.Next() {
+		val, err := fRows.Scan()
+		if err != nil {
+			return err
+		}
+		destV.Set(val.Elem())
 	}
-	destV.Set(val.Elem())
 
 	return rows.Err()
 }
@@ -155,9 +157,6 @@ func (db *DB) Select(ctx context.Context, dest any, query string, args ...any) e
 		return fmt.Errorf("select given %T, wanted a slice", dest)
 	}
 	elemType := sliceType.Elem()
-	if elemType.Kind() == reflect.Pointer {
-		return fmt.Errorf("given slice of pointers, wanted a slice of structs")
-	}
 	destFields, err := reflectp.FieldsFactory(elemType)
 	if err != nil {
 		return fmt.Errorf("failed to reflect fields for %T: %w", elemType, err)

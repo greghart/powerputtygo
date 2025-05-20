@@ -11,8 +11,9 @@ when it comes to a persistence layer.
 * Contextual transactions to let you write tx agnostic methods cleanly.
 * Reflective scanning support for more flexible queries without the ORM
   * Including nested struct and embedded struct support
-* Taken a step further, generics support with `Model`, for ORM-lite behavior without subscribing
+* Generics support with `Model`, for ORM-lite behavior without subscribing
   to a large framework.
+* TODO: Bare minimum, easy to understand query builders (glorified string builders, no extra DSL)
 
 ## Examples
 

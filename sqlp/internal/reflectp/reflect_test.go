@@ -61,13 +61,13 @@ func TestTypeFields(t *testing.T) {
 			},
 			"Timestamps": {
 				Column:     "Timestamps",
-				Index:      6,
+				Index:      5,
 				DirectType: reflect.TypeOf(Timestamps{}),
 			},
 			"privateTimestamps": {
 				Column:     "privateTimestamps",
 				Tag:        true,
-				Index:      7,
+				Index:      6,
 				DirectType: reflect.TypeOf(privateTimestamps{}),
 				IsColumn:   true,
 			},

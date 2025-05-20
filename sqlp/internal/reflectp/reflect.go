@@ -51,6 +51,9 @@ type Fields struct {
 
 // Internally, all types are stored in a cache to avoid repeated work.
 func FieldsFactory(t reflect.Type) (*Fields, error) {
+	if t.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("given %v, expected struct", t.Kind())
+	}
 	if f, ok := fieldsCache.Load(t); ok {
 		return f.(*Fields), nil
 	}
@@ -148,8 +151,10 @@ func (f *Fields) Rows(rows *sql.Rows) (*FieldsRows, error) {
 
 // traverse traverses the fields of the struct for given columns.
 // Also triggers for intermediate fields (eg. triggers for Child field if requesting child_id).
-// Calls cb with all fields matching a column, their full struct path, and whether it's a column
-// (true) or an intermediate field (false).
+// Calls cb with the found field, full struct path, and whether it's a column (true) or an
+// intermediate field (false). If the column is not found, above will be nil.
+// TODO: Operational flag to error or not? If we select *, a new column should *not* error unless
+// user explicitly requested it.
 func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), _path ...[]int) error {
 	path := []int{}
 	if len(_path) > 0 {
@@ -165,8 +170,10 @@ func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), 
 		// Could be a sub field
 		root, rest, _ := strings.Cut(cols[i], "_")
 		field, ok = f.ByColumnName[root]
+		// Column not found, report and continue.
 		if !ok || field.Fields() == nil {
-			return fmt.Errorf("unknown column %s (on path %v)", cols[i], path)
+			cb(nil, nil, true)
+			continue
 		}
 		path2 := append(path[:], field.Index)
 		// Traverse nested first
@@ -179,7 +186,7 @@ func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), 
 }
 
 // targeter is a function that will return a pointer to a field in the given value.
-type targeter func(strct reflect.Value) (fieldPtr reflect.Value)
+type targeter func(strct reflect.Value) (fieldPtr any)
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -215,12 +222,18 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 			subStructsByField[strings.Join(strings.Fields(fmt.Sprint(path)), ",")] = path
 			return
 		}
-		if len(path) == 1 {
-			sr.targeters[i] = func(v reflect.Value) reflect.Value {
-				return reflect.Indirect(v).Field(path[0]).Addr()
+		switch {
+		case field == nil:
+			// This is a column we don't know about, ignore it.
+			sr.targeters[i] = func(v reflect.Value) any {
+				return new(any)
 			}
-		} else {
-			sr.targeters[i] = func(v reflect.Value) reflect.Value {
+		case len(path) == 1:
+			sr.targeters[i] = func(v reflect.Value) any {
+				return reflect.Indirect(v).Field(path[0]).Addr().Interface()
+			}
+		default:
+			sr.targeters[i] = func(v reflect.Value) any {
 				for _, i := range path {
 					v = reflect.Indirect(v).Field(i)
 					// if this is a pointer and it's nil, allocate a new value and set it
@@ -232,7 +245,7 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 						v.Set(reflect.MakeMap(v.Type()))
 					}
 				}
-				return v.Addr()
+				return v.Addr().Interface()
 			}
 		}
 		i++
@@ -253,11 +266,11 @@ func (sr *FieldsRows) Scan() (reflect.Value, error) {
 	val := reflect.New(sr.fields.Type)
 
 	for i := range sr.targeters {
-		sr.targets[i] = sr.targeters[i](val).Interface()
+		sr.targets[i] = sr.targeters[i](val)
 	}
 
 	if err := sr.Rows.Scan(sr.targets...); err != nil {
-		return reflect.Value{}, fmt.Errorf("failed to scan row: %w", err)
+		return reflect.Value{}, fmt.Errorf("failed123123 to scan row: %w", err)
 	}
 
 	// Post process, remove any pointer structs that should be nil-d out
