@@ -23,6 +23,8 @@ Forgo having the separate contextless method, and instead use these directly wit
 
 ```go
 db.Exec(ctx, query, ...args)
+db.Query(ctx, query, ...args)
+db.QueryRow(ctx, query, ...args)
 ```
 
 ### Contextual Transactions
@@ -37,27 +39,28 @@ type Model struct {
 }
 ...
 func (m *Model) UpdateRow(ctx context.Context, ...) {
-  m.Exec(ctx, "UPDATE ...", )
+  m.Exec(ctx, "UPDATE ...", ...)
 }
 
 m.UpdateRow(ctx, ...) // works directly
 m.BeginTx(func(ctx context.Context) error {
-  return m.UpdateRow(ctx) // will be ran in transaction!
+  return m.UpdateRow(ctx, ...) // will be ran in transaction!
 })
 ```
 
-### Reflective and Generic Scanning
+### Reflective Scanning
 
 The Go Wiki shows an [example](https://go.dev/wiki/SQLInterface#getting-a-table) of using reflect to
-scan into a struct using `reflect`. However, there are a couple additional features `sqlp` supports:
+scan into a struct using `reflect`. `sqlp` expands on this idea with a couple additional features:
 
 * field / column mapping
-  * we want to allow custom mapping of columns to fields, in cases where order doesn't match
+  * we want to allow custom mapping of columns to fields, in cases where order doesn't match or 
+    isn't easily predictable
 * partial select 
   * we want to select a subset of the struct to fill in
-* recursive struct fields
-  * we want to have struct fields themselves populated by the query results
-* write support -- update and insert structs
+* embedded struct fields
+  * we want to have embedded structs also populated by the query results
+* TODO: write support -- update and insert structs
   * we want to avoid becoming an ORM, so this is an intentionally thin and basic layer, just
     helping write concise code for the basic cases
   * by default, all non-struct type fields are assumed to be direct columns, as well as fields
@@ -130,15 +133,11 @@ person, err := repository.Get(ctx, "SELECT * FROM people LIMIT 1")
 person, err := repository.Find(ctx, 1) // SELECT * FROM people WHERE id = 1 LIMIT 1
 ```
 
-### Generics only support
+### Generics/mapping scanning support
 
-Reflect is very useful for helping make declarative models and clean your code, but ultimately may 
-be too slow for your purposes. Generics allow us to approach similar goals without the performance
-overhead. Mappers handle mapping the column names, to the target address in our object that we
-want to scan into.
-
-Note, currently mappers don't nil out zero embeds, so for example, if you are selecting columns
-into an embed like pet, you should be aware of those zero structs.
+Reflect is very useful for helping make declarative models, but ultimately may be too slow for your
+purposes. Generics allow us to approach similar goals without the performance overhead. We can use
+mappers to handle mapping column names to target addresses in our struct that we want to scan into.
 
 ```go
 petMapper := Mapper[pet]{
@@ -165,11 +164,24 @@ personMapper = MergeMappers(personMapper, personMapper, "child", func(p *person)
   }
   return p.Child
 })
+
+scanner := NewMappingScanner(rows, personMapper)
+for rows.Next() {
+  p, err := scanner.Scan() // p is a person!
+  if err != nil {
+    log.Panicf("failed to scan row: %v", err)
+  }
+}
 ```
 
-## Brainstorm
+Note for these APIs, we must manually "touch" (initialize a 0 value of) any embedded struct that 
+we're scanning into.
+Similarly, it would be up to consumer to nil out any such structs that are zero values after the 
+fact.
 
-Brainstorming concerns that influence the design of this module and suggestions.
+## Advanced thoughts
+
+Brainstorming and additional concext that influence the design of this module and suggestions.
 
 ### Scanning
 
@@ -180,22 +192,27 @@ Conversely, scanning into a destination does not -- `sqlp` unconventionally prov
 options, and it's up to developer which strategies to adopt -- ideally you just choose one option 
 and stick to it for consistency.
 
+* Scan into (no generic types) -- `DB.Get`/`DB.Select`
+* Scan out (generic types) -- `DAO` / `ReflectScanner` / `MappingScanner`
+
 ### Row
 
 Because `sql.Row` doesn't provide `sql.Rows`, and therefore no way to get column names, we can't
 really provide any of the niceties without re-implementing it entirely. For now, this package avoids
 doing that, and you can just use the other APIs.
 
-### Sub structs
+### Embedded structs
 
-Having large structs that with sub-structs as relationships is a common use case. 
-Eg. our case above, a parent can have a child, but doesn't always, so a pointer to a child is 
-natural (yes it should probably be a slice of children!)
+Using embedded structs to model relationships is a common use case in many domains.
+Eg. in our case above, a parent can have a child, but doesn't always, so a pointer to a child is 
+natural.
 
 The difficulty lies in scanning when selecting a parent and left joining their children in. 
 * If there is a child, we need to set one up to have values to scan into
 * If there is not a child, we will have nulls left joined, that have to scan *somewhere*
 
+Because of this, `sqlp` reflect methods will automatically touch nil embedded pointer structs if
+it detects we're scanning into those fields. For the generic 
 This packages suggests handling this by utilizing COALESCE in your queries, to let scanning have
 one path. `sqlp` will setup any embed that is being selected into for a query -- it will then
 clean up any of these that were only populated with zero values.
