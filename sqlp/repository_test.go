@@ -6,7 +6,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func TestDAO_Validate(t *testing.T) {
+func TestRepository_Validate(t *testing.T) {
 	db, _, cleanup := testDB(t)
 	defer cleanup()
 
@@ -14,40 +14,40 @@ func TestDAO_Validate(t *testing.T) {
 		Validate() error
 	}
 	tests := map[string]struct {
-		dao      func() validater
-		expected string
+		repository func() validater
+		expected   string
 	}{
 		"no fields -> nil": {
-			dao: func() validater {
-				return NewDAO[struct{}](db, "test_table")
+			repository: func() validater {
+				return NewRepository[struct{}](db, "test_table")
 			},
 		},
 		"good fields -> nil": {
-			dao: func() validater {
+			repository: func() validater {
 				type goodFields struct {
 					ID   int    `sqlp:"id"`
 					Name string `sqlp:"name"`
 				}
-				return NewDAO[goodFields](db, "test_table")
+				return NewRepository[goodFields](db, "test_table")
 			},
 		},
 		"person -> nil": {
-			dao: func() validater {
-				return NewDAO[person](db, "test_table")
+			repository: func() validater {
+				return NewRepository[person](db, "test_table")
 			},
 		},
 		"bad fields -> err": {
-			dao: func() validater {
+			repository: func() validater {
 				type badFields struct {
 					ID   int    `sqlp:"id"`
 					Name string `sqlp:"id"` // duplicate tag
 				}
-				return NewDAO[badFields](db, "test_table")
+				return NewRepository[badFields](db, "test_table")
 			},
 			expected: "duplicate column name id",
 		},
 		"bad but deep fields -> err": {
-			dao: func() validater {
+			repository: func() validater {
 				type badFields struct {
 					ID   int    `sqlp:"id"`
 					Name string `sqlp:"id"` // duplicate tag
@@ -55,15 +55,15 @@ func TestDAO_Validate(t *testing.T) {
 				type parent struct {
 					Bad badFields `sqlp:"bad"`
 				}
-				return NewDAO[parent](db, "test_table")
+				return NewRepository[parent](db, "test_table")
 			},
 			expected: "failed to process sub struct Bad: duplicate column name id",
 		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			dao := test.dao()
-			err := dao.Validate()
+			repository := test.repository()
+			err := repository.Validate()
 			if test.expected == "" && err != nil {
 				t.Errorf("expected no error, got %v", err)
 			} else if test.expected != "" && (err == nil || err.Error() != test.expected) {
@@ -73,16 +73,16 @@ func TestDAO_Validate(t *testing.T) {
 	}
 }
 
-func TestDAO_Get(t *testing.T) {
+func TestRepository_Get(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 
-	dao := NewDAO[person](db, "people")
+	repository := NewRepository[person](db, "people")
 
 	id1, id2, id3 := grandchildrenSetup(ctx, db)
 
 	t.Run("multi table query joins", func(t *testing.T) {
-		p, err := dao.Get(ctx, selectGrandchildrenAndPets("p.id = ?"), id1)
+		p, err := repository.Get(ctx, selectGrandchildrenAndPets("p.id = ?"), id1)
 		if err != nil {
 			t.Fatalf("failed to get: %v", err)
 		}
@@ -102,7 +102,7 @@ func TestDAO_Get(t *testing.T) {
 	})
 
 	t.Run("simple one table query", func(t *testing.T) {
-		p, err := dao.Get(ctx, "SELECT id, first_name, last_name FROM people")
+		p, err := repository.Get(ctx, "SELECT id, first_name, last_name FROM people")
 		if err != nil {
 			t.Fatalf("failed to get: %v", err)
 		}
@@ -113,11 +113,11 @@ func TestDAO_Get(t *testing.T) {
 	})
 }
 
-func TestDAO_Select(t *testing.T) {
+func TestRepository_Select(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 
-	dao := NewDAO[person](db, "people")
+	repository := NewRepository[person](db, "people")
 
 	id1, id2, id3 := grandchildrenSetup(ctx, db)
 	// Another one to show off multiple rows
@@ -125,7 +125,7 @@ func TestDAO_Select(t *testing.T) {
 	albertId, _ := res.LastInsertId()
 
 	t.Run("multi table query with joins", func(t *testing.T) {
-		people, err := dao.Select(ctx, selectGrandchildrenAndPets())
+		people, err := repository.Select(ctx, selectGrandchildrenAndPets())
 		if err != nil {
 			t.Fatalf("failed to select: %v", err)
 		}
@@ -150,7 +150,7 @@ func TestDAO_Select(t *testing.T) {
 	})
 
 	t.Run("simple one table query", func(t *testing.T) {
-		people, err := dao.Select(ctx, "SELECT id, first_name, last_name FROM people")
+		people, err := repository.Select(ctx, "SELECT id, first_name, last_name FROM people")
 		if err != nil {
 			t.Fatalf("failed to select: %v", err)
 		}

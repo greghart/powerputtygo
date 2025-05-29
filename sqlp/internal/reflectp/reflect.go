@@ -71,7 +71,7 @@ func FieldsFactory(t reflect.Type) (*Fields, error) {
 // we can't know how deep to go until there is data to check against.
 func newFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Fields, error) {
 	visited := map[reflect.Type]bool{}
-	if len(visited) > 0 {
+	if len(_visited) > 0 {
 		visited = _visited[0]
 	}
 	visited[t] = true
@@ -153,8 +153,6 @@ func (f *Fields) Rows(rows *sql.Rows) (*FieldsRows, error) {
 // Also triggers for intermediate fields (eg. triggers for Child field if requesting child_id).
 // Calls cb with the found field, full struct path, and whether it's a column (true) or an
 // intermediate field (false). If the column is not found, above will be nil.
-// TODO: Operational flag to error or not? If we select *, a new column should *not* error unless
-// user explicitly requested it.
 func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), _path ...[]int) error {
 	path := []int{}
 	if len(_path) > 0 {
@@ -197,7 +195,7 @@ type FieldsRows struct {
 	targets []any
 	// Target the fields in our final struct
 	targeters []targeter
-	// Paths to sub struct fields that should be nil checked.
+	// Paths to sub ptr struct fields that should be nil checked.
 	// Nil check meaning to see if we ended up not scanning any data, we can nil out the 0 values
 	// that were setup for scanning.
 	zeroNilFields [][]int
@@ -215,28 +213,33 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 		targeters: make([]targeter, len(cols)),
 	}
 	// Pre-calculate targeters and zero nil-checks
-	subStructsByField := map[string][]int{}
+	zeroNilsByPath := map[string][]int{}
 	i := 0
 	err = f.traverse(cols, func(field *Field, path []int, isColumn bool) {
 		if !isColumn {
-			subStructsByField[strings.Join(strings.Fields(fmt.Sprint(path)), ",")] = path
+			if field.Type.Kind() == reflect.Pointer {
+				zeroNilsByPath[strings.Join(strings.Fields(fmt.Sprint(path)), ",")] = path
+			}
 			return
 		}
 		switch {
+		// TODO: Operational flag to error or not? If we select *, a new column should *not* error unless
+		// user explicitly requested it.
 		case field == nil:
 			// This is a column we don't know about, ignore it.
 			sr.targeters[i] = func(v reflect.Value) any {
 				return new(any)
 			}
 		case len(path) == 1:
+			// Field direct on our struct, easy targeter
 			sr.targeters[i] = func(v reflect.Value) any {
 				return reflect.Indirect(v).Field(path[0]).Addr().Interface()
 			}
 		default:
+			// Field deeper on our struct, traverse path and `touch` ptrs along the way.
 			sr.targeters[i] = func(v reflect.Value) any {
 				for _, i := range path {
 					v = reflect.Indirect(v).Field(i)
-					// if this is a pointer and it's nil, allocate a new value and set it
 					if v.Kind() == reflect.Ptr && v.IsNil() {
 						alloc := reflect.New(deref(v.Type()))
 						v.Set(alloc)
@@ -252,7 +255,7 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 	})
 	// Sort sub-structs by deepest path first
 	// This ensures descendants are nil'd out first so ancestor can correctly nil out as well.
-	for _, path := range subStructsByField {
+	for _, path := range zeroNilsByPath {
 		sr.zeroNilFields = append(sr.zeroNilFields, path)
 	}
 	slices.SortFunc(sr.zeroNilFields, func(a, b []int) int {
@@ -262,22 +265,38 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 	return sr, err
 }
 
-func (sr *FieldsRows) Scan() (reflect.Value, error) {
-	val := reflect.New(sr.fields.Type)
+// Scan a row into reflected value. Will automatically setup a new target as needed
+func (sr *FieldsRows) Scan(_val ...reflect.Value) (reflect.Value, error) {
+	var val reflect.Value
+	if len(_val) > 0 {
+		val = _val[0]
+	} else {
+		val = reflect.New(sr.fields.Type)
+	}
 
 	for i := range sr.targeters {
 		sr.targets[i] = sr.targeters[i](val)
 	}
 
 	if err := sr.Rows.Scan(sr.targets...); err != nil {
-		return reflect.Value{}, fmt.Errorf("failed123123 to scan row: %w", err)
+		return reflect.Value{}, fmt.Errorf("failed to scan row: %w", err)
 	}
 
 	// Post process, remove any pointer structs that should be nil-d out
+	fmt.Printf("zero nil fields: %+v\n", sr.zeroNilFields)
 	for _, path := range sr.zeroNilFields {
 		v := val
-		for _, i := range path {
+		issue := false
+		for _i, i := range path {
+			if !reflect.Indirect(v).IsValid() {
+				issue = true
+				fmt.Printf("failed to nil out field on path %v (%v)\n", path, _i)
+				break
+			}
 			v = reflect.Indirect(v).Field(i)
+		}
+		if issue {
+			continue
 		}
 		elem := v.Elem() // trust setup, will be pointers
 		if elem.IsValid() && elem.IsZero() {

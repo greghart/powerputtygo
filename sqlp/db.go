@@ -120,7 +120,7 @@ func (db *DB) Get(ctx context.Context, dest any, query string, args ...any) erro
 	if err != nil {
 		return fmt.Errorf("failed to reflect fields for %T: %w", elemType, err)
 	}
-	destV := reflect.ValueOf(dest).Elem()
+	destV := reflect.ValueOf(dest)
 
 	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
@@ -135,11 +135,10 @@ func (db *DB) Get(ctx context.Context, dest any, query string, args ...any) erro
 	}
 
 	if fRows.Next() {
-		val, err := fRows.Scan()
+		_, err := fRows.Scan(destV)
 		if err != nil {
 			return err
 		}
-		destV.Set(val.Elem())
 	}
 
 	return rows.Err()
@@ -156,6 +155,7 @@ func (db *DB) Select(ctx context.Context, dest any, query string, args ...any) e
 	if sliceType.Kind() != reflect.Slice {
 		return fmt.Errorf("select given %T, wanted a slice", dest)
 	}
+	// Do reflection so we can error early before query
 	elemType := sliceType.Elem()
 	destFields, err := reflectp.FieldsFactory(elemType)
 	if err != nil {

@@ -8,54 +8,54 @@ import (
 	"github.com/greghart/powerputtygo/sqlp/internal/reflectp"
 )
 
-// DAO provides a data access layer for a specific entity
-type DAO[E any] struct {
+// Repository provides a data access layer for a specific entity
+type Repository[E any] struct {
 	*DB
 	entity E
 	table  string
 	t      reflect.Type
 }
 
-func NewDAO[E any](db *DB, table string) *DAO[E] {
+func NewRepository[E any](db *DB, table string) *Repository[E] {
 	var entity E
-	return &DAO[E]{DB: db, entity: entity, table: table, t: reflect.TypeOf(entity)}
+	return &Repository[E]{DB: db, entity: entity, table: table, t: reflect.TypeOf(entity)}
 }
 
 // Runs reflection process to ensure entity is setup correctly
-func (dao *DAO[E]) Validate() error {
-	_, err := reflectp.FieldsFactory(dao.t)
+func (r *Repository[E]) Validate() error {
+	_, err := reflectp.FieldsFactory(r.t)
 	return err
 }
 
 // Find retrieves an entity by its ID, assuming `id` is the primary key.
 // Note, this is setup for reference as much as usage. Such methods are trivial to write yourself,
 // rather than unnecessarily complicate struct tags to tag pks and other fields.
-func (dao *DAO[E]) Find(ctx context.Context, id int) (E, error) {
-	return dao.Get(
+func (r *Repository[E]) Find(ctx context.Context, id int) (E, error) {
+	return r.Get(
 		ctx,
-		"SELECT * FROM "+dao.table+" WHERE id = ?",
+		"SELECT * FROM "+r.table+" WHERE id = ?",
 		id,
 	)
 }
 
-func (dao *DAO[E]) Get(ctx context.Context, q string, args ...any) (E, error) {
+func (r *Repository[E]) Get(ctx context.Context, q string, args ...any) (E, error) {
 	var entity E
-	entities, err := dao.Select(ctx, q, args...)
+	entities, err := r.Select(ctx, q, args...)
 	if len(entities) > 0 {
 		entity = entities[0]
 	}
 	return entity, err
 }
 
-func (dao *DAO[E]) Select(ctx context.Context, q string, args ...any) ([]E, error) {
+func (r *Repository[E]) Select(ctx context.Context, q string, args ...any) ([]E, error) {
 	var entities []E
-	// Re-implement DB#Select, avoiding using reflection for filling our results
-	fields, err := reflectp.FieldsFactory(dao.t) // should be cached with Validate
+	// Re-implement DB#Select, to avoid using reflection for filling our results
+	fields, err := reflectp.FieldsFactory(r.t) // should be cached with Validate
 	if err != nil {
-		return nil, fmt.Errorf("failed to reflect fields for %T: %w", dao.t, err)
+		return nil, fmt.Errorf("failed to reflect fields for %T: %w", r.t, err)
 	}
 
-	rows, err := dao.DB.Query(ctx, q, args...)
+	rows, err := r.DB.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
