@@ -49,12 +49,6 @@ func (r *Repository[E]) Get(ctx context.Context, q string, args ...any) (E, erro
 
 func (r *Repository[E]) Select(ctx context.Context, q string, args ...any) ([]E, error) {
 	var entities []E
-	// Re-implement DB#Select, to avoid using reflection for filling our results
-	fields, err := reflectp.FieldsFactory(r.t) // should be cached with Validate
-	if err != nil {
-		return nil, fmt.Errorf("failed to reflect fields for %T: %w", r.t, err)
-	}
-
 	rows, err := r.DB.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -62,17 +56,17 @@ func (r *Repository[E]) Select(ctx context.Context, q string, args ...any) ([]E,
 	defer rows.Close()
 
 	// Prepare row scanning
-	fRows, err := fields.Rows(rows)
+	scanner, err := NewReflectScanner[E](rows)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get fields rows: %w", err)
+		return nil, fmt.Errorf("failed to get reflect scanner: %w", err)
 	}
 
 	for rows.Next() {
-		val, err := fRows.Scan()
+		val, err := scanner.Scan()
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		entities = append(entities, val.Elem().Interface().(E))
+		entities = append(entities, val)
 	}
 
 	return entities, rows.Err()

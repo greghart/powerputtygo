@@ -11,7 +11,7 @@
       "request": "launch",
       "mode": "auto",
       "program": "${fileDirname}",
-      "args": ["-test.run", "TestSqlp_RunInTx"]
+      "args": ["-test.run", "TestNewMapper"]
     }
   ]
 }

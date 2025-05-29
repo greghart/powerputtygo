@@ -7,12 +7,12 @@ when it comes to a persistence layer.
 
 ## Features
 
-* Consistent and minimal "happy path" APIs
+* Consistent and minimal "happy path" APIs.
 * Contextual transactions to let you write tx agnostic methods cleanly.
-* Reflective scanning support for more flexible queries without the ORM
-  * Including nested struct and embedded struct support
-* Generics support with `Model`, for ORM-lite behavior without subscribing
-  to a large framework.
+* `reflect`ive scanning support using struct tags.
+  * Including nested struct and embedded struct support.
+* `Repository` pattern support, to provide a wrapper around specific entities.
+* Generic struct mapping scanning support to avoid sql tags for performance.
 * TODO: Bare minimum, easy to understand query builders (glorified string builders, no extra DSL)
 
 ## Examples
@@ -36,21 +36,20 @@ type Model struct {
   *sqlp.DB
 }
 ...
-func (m *Model) UpdateRow(ctx, ...) {
+func (m *Model) UpdateRow(ctx context.Context, ...) {
   m.Exec(ctx, "UPDATE ...", )
 }
 
 m.UpdateRow(ctx, ...) // works directly
-m.BeginTx(func(ctx context.Context) {
-  m.UpdateRow(ctx) // will be ran in transaction!
+m.BeginTx(func(ctx context.Context) error {
+  return m.UpdateRow(ctx) // will be ran in transaction!
 })
 ```
 
-### Reflect
+### Reflective and Generic Scanning
 
 The Go Wiki shows an [example](https://go.dev/wiki/SQLInterface#getting-a-table) of using reflect to
-scan into a struct using `reflect`. However, there are a couple additional features we want to 
-support:
+scan into a struct using `reflect`. However, there are a couple additional features `sqlp` supports:
 
 * field / column mapping
   * we want to allow custom mapping of columns to fields, in cases where order doesn't match
@@ -80,10 +79,10 @@ type Person struct {
   Child2 *Person `sqlp:"child2"`
   Ignore *Person `sqlp:"-"` // will never be scanned
   unexported *Person // Not reflectable
-  // Collisions will error
-  Timestamps Timestamps `sqlp:timestamps,column`
   // Embedded structs are assumed to be columns by default (ie. will write in updates/inserts)
   privateTimestamps // note non-exported embedded struct still has exported fields
+  // Timestamps Timestamps `sqlp:,column` -- collision would error
+  Timestamps Timestamps `sqlp:timestamps,column`
 }
 
 type privateTimestamps Timestamps
@@ -92,11 +91,100 @@ type Timestamps struct {
   CreatedAt time.time `sqlp:"created_at"`
   UpdatedAt time.time `sqlp:"updated_at"`
 }
+
+// Select into slice
+// Will fail before query if Person is not setup correctly
+people := []person{}
+err := db.Select(ctx, &people, "SELECT * FROM people")
+
+// Get into a struct
+p := person{}
+err := db.Get(ctx, &p, "SELECT * FROM people LIMIT 1")
+
+// Or for row by row:
+// The first scan caches the reflection for performance, so must be called with same destination
+rows, err := db.Query(ctx, "SELECT * FROM people")
+scanner := NewReflectScanner[person](rows)
+for rows.Next() {
+  p, err := scanner.Scan()
+}
+```
+
+### Repository pattern
+
+`sqlp` provides a repository pattern to provide nicer APIs on top of `sqlp.DB`. By using generics
+and declaring your target struct as a type parameter, you can:
+
+* verify the struct tags are setup correctly ad hoc (such as during initialization)
+* get and select values directly instead of passing in pointers
+* better performance since we can fill result slices without reflection (though reflection 
+  is still used for scanning).
+
+```go
+repository := sqlp.NewRepository[person](db, "people")
+if err := repository.Validate(); err != nil {
+  log.Panicf("people struct is not setup correctly: %v", err)
+}
+people, err := repository.Select(ctx, "SELECT * FROM people")
+person, err := repository.Get(ctx, "SELECT * FROM people LIMIT 1")
+person, err := repository.Find(ctx, 1) // SELECT * FROM people WHERE id = 1 LIMIT 1
+```
+
+### Generics only support
+
+Reflect is very useful for helping make declarative models and clean your code, but ultimately may 
+be too slow for your purposes. Generics allow us to approach similar goals without the performance
+overhead. Mappers handle mapping the column names, to the target address in our object that we
+want to scan into.
+
+Note, currently mappers don't nil out zero embeds, so for example, if you are selecting columns
+into an embed like pet, you should be aware of those zero structs.
+
+```go
+petMapper := Mapper[pet]{
+  "id":   func(p *pet) any { return &p.ID },
+  "name": func(p *pet) any { return &p.Name },
+  "type": func(p *pet) any { return &p.Type },
+}
+personMapper := Mapper[person]{
+  "id":         func(p *person) any { return &p.ID },
+  "first_name": func(p *person) any { return &p.FirstName },
+  "last_name":  func(p *person) any { return &p.LastName },
+}
+// Support pet
+personMapper = MergeMappers(personMapper, petMapper, "pet", func(p *person) *pet {
+  if p.Pet == nil {
+    p.Pet = &pet{}
+  }
+  return p.Pet
+})
+// Support children
+personMapper = MergeMappers(personMapper, personMapper, "child", func(p *person) *person {
+  if p.Child == nil {
+    p.Child = &person{}
+  }
+  return p.Child
+})
 ```
 
 ## Brainstorm
 
 Brainstorming concerns that influence the design of this module and suggestions.
+
+### Scanning
+
+Scanning is a big subject, and sqlp tries to support multiple strategies. However, we must 
+acknowledge some limitations with having a consistent API across these strategies. Because go
+doesn't support method generics, we need a layer outside the `DB` connection for those APIs. 
+Conversely, scanning into a destination does not -- `sqlp` unconventionally provides distinct API
+options, and it's up to developer which strategies to adopt -- ideally you just choose one option 
+and stick to it for consistency.
+
+### Row
+
+Because `sql.Row` doesn't provide `sql.Rows`, and therefore no way to get column names, we can't
+really provide any of the niceties without re-implementing it entirely. For now, this package avoids
+doing that, and you can just use the other APIs.
 
 ### Sub structs
 

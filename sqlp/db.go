@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
-
-	"github.com/greghart/powerputtygo/sqlp/internal/reflectp"
 )
 
 // DB extends the stdlib sql.DB type to add additional behavior.
@@ -111,31 +109,16 @@ func (db *DB) txContext(ctx context.Context) *sql.Tx {
 
 // Get runs a query and scans the single row result into dest, using reflection to scan.
 func (db *DB) Get(ctx context.Context, dest any, query string, args ...any) error {
-	destType := reflect.TypeOf(dest)
-	if destType.Kind() != reflect.Pointer {
-		return fmt.Errorf("get given %T, wanted a pointer", dest)
-	}
-	elemType := destType.Elem()
-	destFields, err := reflectp.FieldsFactory(elemType)
-	if err != nil {
-		return fmt.Errorf("failed to reflect fields for %T: %w", elemType, err)
-	}
-	destV := reflect.ValueOf(dest)
-
 	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	// Prepare row scanning
-	fRows, err := destFields.Rows(rows)
-	if err != nil {
-		return fmt.Errorf("failed to get fields rows: %w", err)
-	}
+	scanner := NewReflectDestScanner(rows)
 
-	if fRows.Next() {
-		_, err := fRows.Scan(destV)
+	if rows.Next() {
+		err := scanner.Scan(dest)
 		if err != nil {
 			return err
 		}
@@ -157,10 +140,6 @@ func (db *DB) Select(ctx context.Context, dest any, query string, args ...any) e
 	}
 	// Do reflection so we can error early before query
 	elemType := sliceType.Elem()
-	destFields, err := reflectp.FieldsFactory(elemType)
-	if err != nil {
-		return fmt.Errorf("failed to reflect fields for %T: %w", elemType, err)
-	}
 	destV := reflect.ValueOf(dest).Elem()
 
 	// Run the query
@@ -170,14 +149,11 @@ func (db *DB) Select(ctx context.Context, dest any, query string, args ...any) e
 	}
 	defer rows.Close()
 
-	// Prepare row scanning
-	fRows, err := destFields.Rows(rows)
-	if err != nil {
-		return fmt.Errorf("failed to get fields rows: %w", err)
-	}
+	scanner := NewReflectDestScanner(rows)
 
 	for rows.Next() {
-		val, err := fRows.Scan()
+		val := reflect.New(elemType)
+		err := scanner.Scan(val.Interface())
 		if err != nil {
 			return fmt.Errorf("failed to scan row: %w", err)
 		}

@@ -79,23 +79,14 @@ func TestRepository_Get(t *testing.T) {
 
 	repository := NewRepository[person](db, "people")
 
-	id1, id2, id3 := grandchildrenSetup(ctx, db)
+	grandparent := grandchildrenSetup(ctx, db)
 
 	t.Run("multi table query joins", func(t *testing.T) {
-		p, err := repository.Get(ctx, selectGrandchildrenAndPets("p.id = ?"), id1)
+		p, err := repository.Get(ctx, selectGrandchildrenAndPets("p.id = ?"), grandparent.ID)
 		if err != nil {
 			t.Fatalf("failed to get: %v", err)
 		}
-		expected := person{
-			ID: id1, FirstName: "John", LastName: "Doe",
-			Child: &person{
-				ID: id2, FirstName: "Lil Johnnie", LastName: "Doe",
-				Child: &person{
-					ID: id3, FirstName: "Lil Lil Johnnie", LastName: "Doe",
-				},
-				Pet: &pet{ID: 1, Name: "Eevee", Type: "Dog"},
-			},
-		}
+		expected := grandparent
 		if !cmp.Equal(p, expected, personComparer) {
 			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, p, personComparer))
 		}
@@ -106,7 +97,7 @@ func TestRepository_Get(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get: %v", err)
 		}
-		expected := person{ID: id1, FirstName: "John", LastName: "Doe"}
+		expected := person{ID: grandparent.ID, FirstName: "John", LastName: "Doe"}
 		if !cmp.Equal(p, expected, personComparer) {
 			t.Errorf("gotten person unexpected:\n%v", cmp.Diff(expected, p, personComparer))
 		}
@@ -119,10 +110,8 @@ func TestRepository_Select(t *testing.T) {
 
 	repository := NewRepository[person](db, "people")
 
-	id1, id2, id3 := grandchildrenSetup(ctx, db)
-	// Another one to show off multiple rows
-	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Albert", "Einstein") // nolint:errcheck
-	albertId, _ := res.LastInsertId()
+	grandparent := grandchildrenSetup(ctx, db)
+	albert := albertSetup(ctx, db)
 
 	t.Run("multi table query with joins", func(t *testing.T) {
 		people, err := repository.Select(ctx, selectGrandchildrenAndPets())
@@ -130,19 +119,8 @@ func TestRepository_Select(t *testing.T) {
 			t.Fatalf("failed to select: %v", err)
 		}
 		expected := []person{
-			{
-				ID: id1, FirstName: "John", LastName: "Doe",
-				Child: &person{
-					ID: id2, FirstName: "Lil Johnnie", LastName: "Doe",
-					Child: &person{
-						ID: id3, FirstName: "Lil Lil Johnnie", LastName: "Doe",
-					},
-					Pet: &pet{ID: 1, Name: "Eevee", Type: "Dog"},
-				},
-			},
-			{
-				ID: albertId, FirstName: "Albert", LastName: "Einstein",
-			},
+			grandparent,
+			albert,
 		}
 		if !cmp.Equal(people, expected, personComparer) {
 			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, people, personComparer))
@@ -155,10 +133,10 @@ func TestRepository_Select(t *testing.T) {
 			t.Fatalf("failed to select: %v", err)
 		}
 		expected := []person{
-			{ID: id1, FirstName: "John", LastName: "Doe"},
-			{ID: id2, FirstName: "Lil Johnnie", LastName: "Doe"},
-			{ID: id3, FirstName: "Lil Lil Johnnie", LastName: "Doe"},
-			{ID: albertId, FirstName: "Albert", LastName: "Einstein"},
+			{ID: grandparent.ID, FirstName: "John", LastName: "Doe"},
+			{ID: grandparent.Child.ID, FirstName: "Lil Johnnie", LastName: "Doe"},
+			{ID: grandparent.Child.Child.ID, FirstName: "Lil Lil Johnnie", LastName: "Doe"},
+			albert,
 		}
 		if !cmp.Equal(people, expected, personComparer) {
 			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, people, personComparer))

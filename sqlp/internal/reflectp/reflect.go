@@ -265,7 +265,7 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 	return sr, err
 }
 
-// Scan a row into reflected value. Will automatically setup a new target as needed
+// Scan a row into reflected value. Will automatically setup a new value if needed
 func (sr *FieldsRows) Scan(_val ...reflect.Value) (reflect.Value, error) {
 	var val reflect.Value
 	if len(_val) > 0 {
@@ -283,15 +283,12 @@ func (sr *FieldsRows) Scan(_val ...reflect.Value) (reflect.Value, error) {
 	}
 
 	// Post process, remove any pointer structs that should be nil-d out
-	fmt.Printf("zero nil fields: %+v\n", sr.zeroNilFields)
 	for _, path := range sr.zeroNilFields {
 		v := val
 		issue := false
 		for _i, i := range path {
 			if !reflect.Indirect(v).IsValid() {
-				issue = true
-				fmt.Printf("failed to nil out field on path %v (%v)\n", path, _i)
-				break
+				return reflect.Value{}, fmt.Errorf("failed to nil out field on path %v (%v)\n", path, _i)
 			}
 			v = reflect.Indirect(v).Field(i)
 		}

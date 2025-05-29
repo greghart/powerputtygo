@@ -15,7 +15,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func TestSqlp_Exec(t *testing.T) {
+func TestDB_Exec(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 
@@ -32,7 +32,7 @@ func TestSqlp_Exec(t *testing.T) {
 	}
 }
 
-func TestSqlp_Query(t *testing.T) {
+func TestDB_Query(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe") // nolint:errcheck
@@ -53,7 +53,7 @@ func TestSqlp_Query(t *testing.T) {
 	}
 }
 
-func TestSqlp_QueryRow(t *testing.T) {
+func TestDB_QueryRow(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe") // nolint:errcheck
@@ -65,14 +65,13 @@ func TestSqlp_QueryRow(t *testing.T) {
 	}
 }
 
-func TestSqlp_Select(t *testing.T) {
+func TestDB_Select(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 
-	id1, id2, id3 := grandchildrenSetup(ctx, db)
+	grandparent := grandchildrenSetup(ctx, db)
 	// Another one to show off multiple rows
-	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Albert", "Einstein") // nolint:errcheck
-	albertId, _ := res.LastInsertId()
+	albert := albertSetup(ctx, db) // nolint:errcheck
 
 	t.Run("multi table query with joins", func(t *testing.T) {
 		people := []person{}
@@ -81,19 +80,8 @@ func TestSqlp_Select(t *testing.T) {
 			t.Fatalf("failed to select: %v", err)
 		}
 		expected := []person{
-			{
-				ID: id1, FirstName: "John", LastName: "Doe",
-				Child: &person{
-					ID: id2, FirstName: "Lil Johnnie", LastName: "Doe",
-					Child: &person{
-						ID: id3, FirstName: "Lil Lil Johnnie", LastName: "Doe",
-					},
-					Pet: &pet{ID: 1, Name: "Eevee", Type: "Dog"},
-				},
-			},
-			{
-				ID: albertId, FirstName: "Albert", LastName: "Einstein",
-			},
+			grandparent,
+			albert,
 		}
 		if !cmp.Equal(people, expected, personComparer) {
 			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, people, personComparer))
@@ -107,10 +95,10 @@ func TestSqlp_Select(t *testing.T) {
 			t.Fatalf("failed to select: %v", err)
 		}
 		expected := []person{
-			{ID: id1, FirstName: "John", LastName: "Doe"},
-			{ID: id2, FirstName: "Lil Johnnie", LastName: "Doe"},
-			{ID: id3, FirstName: "Lil Lil Johnnie", LastName: "Doe"},
-			{ID: albertId, FirstName: "Albert", LastName: "Einstein"},
+			{ID: grandparent.ID, FirstName: "John", LastName: "Doe"},
+			{ID: grandparent.Child.ID, FirstName: "Lil Johnnie", LastName: "Doe"},
+			{ID: grandparent.Child.Child.ID, FirstName: "Lil Lil Johnnie", LastName: "Doe"},
+			albert,
 		}
 		if !cmp.Equal(people, expected, personComparer) {
 			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, people, personComparer))
@@ -127,7 +115,43 @@ func TestSqlp_Select(t *testing.T) {
 	})
 }
 
-func TestSqlp_RunInTx(t *testing.T) {
+func TestDB_Get(t *testing.T) {
+	db, ctx, cleanup := testDB(t)
+	defer cleanup()
+
+	grandparent := grandchildrenSetup(ctx, db)
+	t.Run("multi table query joins", func(t *testing.T) {
+		p := person{}
+		err := db.Get(ctx, &p, selectGrandchildrenAndPets("p.id = ?"), grandparent.ID)
+		if err != nil {
+			t.Fatalf("failed to get: %v", err)
+		}
+		expected := grandparent
+		if !cmp.Equal(p, expected, personComparer) {
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, p, personComparer))
+		}
+	})
+
+	t.Run("simple one table query", func(t *testing.T) {
+		p := person{}
+		err := db.Get(ctx, &p, "SELECT id, first_name, last_name FROM people")
+		if err != nil {
+			t.Fatalf("failed to get: %v", err)
+		}
+		expected := person{ID: grandparent.ID, FirstName: "John", LastName: "Doe"}
+		if !cmp.Equal(p, expected, personComparer) {
+			t.Errorf("gotten person unexpected:\n%v", cmp.Diff(expected, p, personComparer))
+		}
+	})
+
+	t.Run("to person pointer", func(t *testing.T) {
+		p := &person{}
+		err := db.Get(ctx, &p, "SELECT id, first_name, last_name FROM people")
+		errcmp.MustMatch(t, err, "given ptr, expected struct")
+	})
+}
+
+func TestDB_RunInTx(t *testing.T) {
 	db, ctx, cleanup := testPG(t)
 	defer cleanup()
 
@@ -203,54 +227,9 @@ func TestSqlp_RunInTx(t *testing.T) {
 	})
 }
 
-func TestSqlp_Get(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
-
-	id1, id2, id3 := grandchildrenSetup(ctx, db)
-	t.Run("multi table query joins", func(t *testing.T) {
-		p := person{}
-		err := db.Get(ctx, &p, selectGrandchildrenAndPets("p.id = ?"), id1)
-		if err != nil {
-			t.Fatalf("failed to get: %v", err)
-		}
-		expected := person{
-			ID: id1, FirstName: "John", LastName: "Doe",
-			Child: &person{
-				ID: id2, FirstName: "Lil Johnnie", LastName: "Doe",
-				Child: &person{
-					ID: id3, FirstName: "Lil Lil Johnnie", LastName: "Doe",
-				},
-				Pet: &pet{ID: 1, Name: "Eevee", Type: "Dog"},
-			},
-		}
-		if !cmp.Equal(p, expected, personComparer) {
-			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, p, personComparer))
-		}
-	})
-
-	t.Run("simple one table query", func(t *testing.T) {
-		p := person{}
-		err := db.Get(ctx, &p, "SELECT id, first_name, last_name FROM people")
-		if err != nil {
-			t.Fatalf("failed to get: %v", err)
-		}
-		expected := person{ID: id1, FirstName: "John", LastName: "Doe"}
-		if !cmp.Equal(p, expected, personComparer) {
-			t.Errorf("gotten person unexpected:\n%v", cmp.Diff(expected, p, personComparer))
-		}
-	})
-
-	t.Run("to person pointer", func(t *testing.T) {
-		p := &person{}
-		err := db.Get(ctx, &p, "SELECT id, first_name, last_name FROM people")
-		errcmp.MustMatch(t, err, "given ptr, expected struct")
-	})
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
-func grandchildrenSetup(ctx context.Context, db *DB) (int64, int64, int64) {
+func grandchildrenSetup(ctx context.Context, db *DB) person {
 	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
 	id, _ := res.LastInsertId()
 	res2, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Johnnie", "Doe", id)
@@ -258,7 +237,24 @@ func grandchildrenSetup(ctx context.Context, db *DB) (int64, int64, int64) {
 	res3, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Lil Johnnie", "Doe", id2) // nolint:errcheck
 	id3, _ := res3.LastInsertId()
 	db.Exec(ctx, "INSERT INTO pets (name, type, parent_id) VALUES (?, ?, ?)", "Eevee", "Dog", id2) // nolint:errcheck
-	return id, id2, id3
+	return person{
+		ID: id, FirstName: "John", LastName: "Doe",
+		Child: &person{
+			ID: id2, FirstName: "Lil Johnnie", LastName: "Doe",
+			Child: &person{
+				ID: id3, FirstName: "Lil Lil Johnnie", LastName: "Doe",
+			},
+			Pet: &pet{ID: 1, Name: "Eevee", Type: "Dog"},
+		},
+	}
+}
+
+func albertSetup(ctx context.Context, db *DB) person {
+	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Albert", "Einstein") // nolint:errcheck
+	albertId, _ := res.LastInsertId()
+	return person{
+		ID: albertId, FirstName: "Albert", LastName: "Einstein",
+	}
 }
 
 // Not using query helpers since those shouldn't be tested as part of these tests
@@ -375,7 +371,7 @@ type person struct {
 }
 
 type pet struct {
-	ID   int    `sqlp:"id"`
+	ID   int64  `sqlp:"id"`
 	Name string `sqlp:"name"`
 	Type string `sqlp:"type"`
 }
