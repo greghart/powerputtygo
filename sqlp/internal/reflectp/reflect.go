@@ -18,11 +18,9 @@ type Field struct {
 	Column string
 
 	Tag        bool
-	Index      int
+	Index      []int
 	DirectType reflect.Type // Direct type of field, equal to Type unless pointer
 	Type       reflect.Type
-
-	IsColumn bool // This fields' sub-fields will be considered columns of the parent table.
 
 	// Cached sub fields
 	fields *Fields // Fields of the struct, if this is a struct.
@@ -76,6 +74,13 @@ func newFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Fields, erro
 	}
 	visited[t] = true
 	byColumnName := make(map[string]*Field, t.NumField())
+	add := func(column string, field *Field) bool {
+		if _, ok := byColumnName[column]; ok {
+			return true
+		}
+		byColumnName[column] = field
+		return false
+	}
 
 	for i := 0; i < t.NumField(); i++ {
 		sf := t.Field(i)
@@ -117,27 +122,42 @@ func newFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Fields, erro
 			column = sf.Name
 		}
 
+		// Whether to "promote" field: normal go embeds or opt-ins
+		promote := (opts.Contains("promote") || (sf.Anonymous && !tagged)) && ft.Kind() == reflect.Struct
+
 		field := Field{
 			Column:     column,
 			Tag:        tagged,
-			Index:      i,
+			Index:      []int{i},
 			DirectType: ft,
 			Type:       sf.Type,
-			IsColumn:   (opts.Contains("column") || (sf.Anonymous && !tagged)) && ft.Kind() == reflect.Struct,
 		}
 		if _, ok := visited[ft]; ft.Kind() == reflect.Struct && !ok {
 			// Recursively touch structs to error early.
-			_, err := newFields(ft, visited)
+			embedded, err := newFields(ft, visited)
 			if err != nil {
 				return nil, fmt.Errorf("failed to process sub struct %s: %w", sf.Name, err)
 			}
+			// Promote all columnar embedded fields
+			if promote {
+				for k, f := range embedded.ByColumnName {
+					col := k
+					f.Index = append([]int{i}, f.Index...) // prepend our index
+					if tagged {
+						col = column + "_" + k
+					}
+					if add(col, f) {
+						return nil, fmt.Errorf("duplicate column name %s in embedded struct %s", k, sf.Name)
+					}
+				}
+			}
 		}
 
-		if _, ok := byColumnName[column]; ok {
-			// Collision == error for now
-			return nil, fmt.Errorf("duplicate column name %s", column)
+		if !promote {
+			if add(column, &field) {
+				return nil, fmt.Errorf("duplicate column name %s", column)
+			}
 		}
-		byColumnName[column] = &field
 	}
 
 	return &Fields{Type: t, ByColumnName: byColumnName}, nil
@@ -162,7 +182,7 @@ func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), 
 	for i := range cols {
 		field, ok := f.ByColumnName[cols[i]]
 		if ok {
-			cb(field, append(path[:], field.Index), true)
+			cb(field, append(path[:], field.Index...), true)
 			continue
 		}
 		// Could be a sub field
@@ -173,7 +193,7 @@ func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), 
 			cb(nil, nil, true)
 			continue
 		}
-		path2 := append(path[:], field.Index)
+		path2 := append(path[:], field.Index...)
 		// Traverse nested first
 		if err := field.Fields().traverse([]string{rest}, cb, path2); err != nil {
 			return err

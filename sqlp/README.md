@@ -82,10 +82,11 @@ type Person struct {
   Child2 *Person `sqlp:"child2"`
   Ignore *Person `sqlp:"-"` // will never be scanned
   unexported *Person // Not reflectable
-  // Embedded structs are assumed to be columns by default (ie. will write in updates/inserts)
+  // Embedded structs are promoted by default (ie. will be read as `created_at`/`updated_at` and
+  // written as well)
   privateTimestamps // note non-exported embedded struct still has exported fields
-  // Timestamps Timestamps `sqlp:,column` -- collision would error
-  Timestamps Timestamps `sqlp:timestamps,column`
+  // Timestamps Timestamps `sqlp:,promote` -- collision would error, so we can namespace these
+  Timestamps Timestamps `sqlp:"timestamps,promote"`
 }
 
 type privateTimestamps Timestamps
@@ -193,7 +194,7 @@ options, and it's up to developer which strategies to adopt -- ideally you just 
 and stick to it for consistency.
 
 * Scan into (no generic types) -- `DB.Get`/`DB.Select`
-* Scan out (generic types) -- `DAO` / `ReflectScanner` / `MappingScanner`
+* Scan out (generic types) -- `Repository` / `ReflectScanner` / `MappingScanner`
 
 ### Row
 

@@ -28,8 +28,8 @@ func TestTypeFields(t *testing.T) {
 		Child2 *Person `sqlp:"child2"`
 		Ignore *Person `sqlp:"-"` // will never be scanned
 		// Embedded structs are assumed to be columns unless they are tagged otherwise.
-		// Use `column` to signal that sub-struct columns are part of table.
-		Timestamps        Timestamps `sql:"timestamps,column"`
+		// Use `column` to signal that sub-struct columns are direct parts of table.
+		Timestamps        Timestamps `sql:"timestamps,promote"`
 		privateTimestamps            // Does still work since non-exported embedded struct has exported fields.
 	}
 
@@ -38,46 +38,51 @@ func TestTypeFields(t *testing.T) {
 		ByColumnName: map[string]*Field{
 			"ID": {
 				Column:     "ID",
-				Index:      0,
+				Index:      []int{0},
 				DirectType: reflect.TypeOf(0),
 			},
 			"name": {
 				Column:     "name",
 				Tag:        true,
-				Index:      1,
+				Index:      []int{1},
 				DirectType: reflect.TypeOf(""),
 			},
 			"child1": {
 				Column:     "child1",
 				Tag:        true,
-				Index:      2,
+				Index:      []int{2},
 				DirectType: reflect.TypeOf(Person{}),
 			},
 			"child2": {
 				Column:     "child2",
 				Tag:        true,
-				Index:      3,
+				Index:      []int{3},
 				DirectType: reflect.TypeOf(Person{}),
 			},
 			"Timestamps": {
 				Column:     "Timestamps",
-				Index:      5,
+				Index:      []int{5},
 				DirectType: reflect.TypeOf(Timestamps{}),
 			},
-			"privateTimestamps": {
-				Column:     "privateTimestamps",
+			"created_at": {
+				Column:     "created_at",
 				Tag:        true,
-				Index:      6,
-				DirectType: reflect.TypeOf(privateTimestamps{}),
-				IsColumn:   true,
+				Index:      []int{6, 0},
+				DirectType: reflect.TypeOf(time.Time{}),
+			},
+			"updated_at": {
+				Column:     "updated_at",
+				Tag:        true,
+				Index:      []int{6, 1},
+				DirectType: reflect.TypeOf(time.Time{}),
 			},
 		},
 	}
 	comparer := cmp.Comparer(func(x, y Field) bool {
 		return (x.Column == y.Column &&
 			cmp.Equal(x.Index, y.Index) &&
-			x.DirectType.Kind() == y.DirectType.Kind() &&
-			x.IsColumn == y.IsColumn)
+			x.DirectType.Kind() == y.DirectType.Kind())
+
 	})
 	if !cmp.Equal(fields.ByColumnName, expected.ByColumnName, comparer) {
 		t.Errorf("TypeFields returned unexpected fields:\n%s", cmp.Diff(expected.ByColumnName, fields.ByColumnName, comparer))
