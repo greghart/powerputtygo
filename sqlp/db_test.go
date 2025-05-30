@@ -360,27 +360,6 @@ func testDBSetup(t *testing.T, db *DB) (*DB, context.Context, func()) {
 	}
 }
 
-type person struct {
-	ID          int64   `sqlp:"id"`
-	NumChildren int     `sqlp:"num_children"`
-	FirstName   string  `sqlp:"first_name"`
-	LastName    string  `sqlp:"last_name"`
-	Child       *person `sqlp:"child"`
-	Pet         *pet    `sqlp:"pet"`
-	timestamps
-}
-
-type pet struct {
-	ID   int64  `sqlp:"id"`
-	Name string `sqlp:"name"`
-	Type string `sqlp:"type"`
-}
-
-type timestamps struct {
-	CreatedAt time.Time `sqlp:"created_at"`
-	UpdatedAt time.Time `sqlp:"updated_at"`
-}
-
 func isWithinDuration(t1 time.Time, t2 time.Time, d time.Duration) bool {
 	return time.Duration(math.Abs(float64(t1.Sub(t2)))) <= d
 }
@@ -412,3 +391,24 @@ func _personComparer(x, y person) bool {
 }
 
 var personComparer = cmp.Comparer(_personComparer)
+
+type person struct {
+	ID          int64   `sqlp:"id"`
+	NumChildren int     `sqlp:"num_children"`
+	FirstName   string  `sqlp:"first_name"`
+	LastName    string  `sqlp:"last_name"`
+	Child       *person `sqlp:"child"`
+	Pet         *pet    `sqlp:"pet"`
+	timestamps
+}
+
+type pet struct {
+	ID   int64  `sqlp:"id"`
+	Name string `sqlp:"name"`
+	Type string `sqlp:"type"`
+}
+
+type timestamps struct {
+	CreatedAt time.Time `sqlp:"created_at"`
+	UpdatedAt time.Time `sqlp:"updated_at"`
+}

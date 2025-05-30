@@ -7,7 +7,7 @@ when it comes to a persistence layer.
 
 ## Features
 
-* Consistent and minimal "happy path" APIs.
+* Consistent and minimal "single path" APIs.
 * Contextual transactions to let you write tx agnostic methods cleanly.
 * `reflect`ive scanning support using struct tags.
   * Including nested struct and embedded struct support.
@@ -15,9 +15,7 @@ when it comes to a persistence layer.
 * Generic struct mapping scanning support to avoid sql tags for performance.
 * TODO: Bare minimum, easy to understand query builders (glorified string builders, no extra DSL)
 
-## Examples
-
-### Exec, Query, QueryRow
+### Single Path -- Exec, Query, QueryRow
 
 Forgo having the separate contextless method, and instead use these directly with context.
 
@@ -43,7 +41,7 @@ func (m *Model) UpdateRow(ctx context.Context, ...) {
 }
 
 m.UpdateRow(ctx, ...) // works directly
-m.BeginTx(func(ctx context.Context) error {
+m.RunInTx(func(ctx context.Context) error {
   return m.UpdateRow(ctx, ...) // will be ran in transaction!
 })
 ```
