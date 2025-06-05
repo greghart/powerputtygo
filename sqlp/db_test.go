@@ -73,7 +73,7 @@ func TestDB_Select(t *testing.T) {
 	// Another one to show off multiple rows
 	albert := albertSetup(ctx, db) // nolint:errcheck
 
-	t.Run("multi table query with joins", func(t *testing.T) {
+	t.Run("multi table query with one to one joins", func(t *testing.T) {
 		people := []person{}
 		err := db.Select(ctx, &people, selectGrandchildrenAndPets())
 		if err != nil {
@@ -111,6 +111,66 @@ func TestDB_Select(t *testing.T) {
 		errcmp.MustMatch(t, err, "given ptr, expected struct")
 		if err == nil {
 			t.Fatalf("expected error, got nil")
+		}
+	})
+
+	t.Run("one to many example", func(t *testing.T) {
+		// Setup a parent with children
+		parents := siblingsSetup(ctx, db)
+		type personRow struct {
+			person
+			Child person `sqlp:"children"`
+		}
+		query := `
+			SELECT p.id, p.first_name, p.last_name, 
+				COALESCE(children.id, 0) AS children_id,
+				COALESCE(children.first_name, "") AS children_first_name,
+				COALESCE(children.last_name, "") AS children_last_name
+			FROM people p
+			LEFT JOIN people children ON children.parent_id = p.id
+			WHERE p.id IN (?, ?)
+			ORDER BY p.id /* Know we can get all children for a person sequentially */
+		`
+		rows, err := db.Query(context.Background(), query, parents[0].ID, parents[1].ID)
+		if err != nil {
+			t.Fatalf("query failed: %v", err)
+		}
+		defer rows.Close()
+
+		scanner, err := NewReflectScanner[personRow](rows)
+		if err != nil {
+			t.Fatalf("failed to reflect person scanner: %v", err)
+		}
+
+		people := []person{}
+		pending := person{}
+		// If we have a pending person, add them to the list
+		grabPending := func() {
+			if pending.ID != 0 {
+				people = append(people, pending)
+			}
+		}
+		for i := 0; rows.Next(); i++ {
+			row, err := scanner.Scan()
+			if err != nil {
+				t.Fatalf("failed to scan row: %v", err)
+			}
+			// New person being scanned
+			if row.ID != pending.ID {
+				grabPending()
+				pending = row.person
+			}
+			// Add joined children
+			if row.Child.ID != 0 {
+				pending.Children = append(pending.Children, row.Child)
+			}
+		}
+		grabPending()
+		t.Logf("scanned %d people", len(people))
+
+		expected := parents
+		if !cmp.Equal(people, expected, personComparer) {
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, people, personComparer))
 		}
 	})
 }
@@ -229,12 +289,43 @@ func TestDB_RunInTx(t *testing.T) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+func siblingsSetup(ctx context.Context, db *DB) []person {
+	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Dad", "")
+	id, _ := res.LastInsertId()
+	res2, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Son", "", id)
+	id2, _ := res2.LastInsertId()
+	res3, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Daughter", "", id)
+	id3, _ := res3.LastInsertId()
+	res4, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "Adam", "")
+	id4, _ := res4.LastInsertId()
+	res5, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Cain", "", id4)
+	id5, _ := res5.LastInsertId()
+	res6, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Abel", "", id4)
+	id6, _ := res6.LastInsertId()
+	return []person{
+		{
+			ID: id, FirstName: "Dad",
+			Children: []person{
+				person{ID: id2, FirstName: "Son"},
+				person{ID: id3, FirstName: "Daughter"},
+			},
+		},
+		{
+			ID: id4, FirstName: "Adam",
+			Children: []person{
+				person{ID: id5, FirstName: "Cain"},
+				person{ID: id6, FirstName: "Abel"},
+			},
+		},
+	}
+}
+
 func grandchildrenSetup(ctx context.Context, db *DB) person {
 	res, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
 	id, _ := res.LastInsertId()
 	res2, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Johnnie", "Doe", id)
 	id2, _ := res2.LastInsertId()
-	res3, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Lil Johnnie", "Doe", id2) // nolint:errcheck
+	res3, _ := db.Exec(ctx, "INSERT INTO people (first_name, last_name, parent_id) VALUES (?, ?, ?)", "Lil Lil Johnnie", "Doe", id2)
 	id3, _ := res3.LastInsertId()
 	db.Exec(ctx, "INSERT INTO pets (name, type, parent_id) VALUES (?, ?, ?)", "Eevee", "Dog", id2) // nolint:errcheck
 	return person{
@@ -374,6 +465,21 @@ func _ptrComparer[T any](x, y *T, cmp func(a, b T) bool) bool {
 	return false
 }
 
+func _sliceComparer[T any](a1, a2 []T, cmp func(a, b T) bool) bool {
+	if len(a1) == 0 && len(a2) == 0 {
+		return true
+	}
+	if len(a1) != len(a2) {
+		return false
+	}
+	if a1 != nil && a2 != nil {
+		x, rest1 := a1[0], a1[1:]
+		y, rest2 := a2[0], a2[1:]
+		return cmp(x, y) && _sliceComparer(rest1, rest2, cmp)
+	}
+	return false
+}
+
 func _petComparer(x, y pet) bool {
 	return (x.ID == y.ID &&
 		x.Name == y.Name &&
@@ -387,18 +493,20 @@ func _personComparer(x, y person) bool {
 		isWithinDuration(x.CreatedAt, y.CreatedAt, 5*time.Second) &&
 		isWithinDuration(x.UpdatedAt, y.UpdatedAt, 5*time.Second) &&
 		_ptrComparer(x.Child, y.Child, _personComparer) &&
+		_sliceComparer(x.Children, y.Children, _personComparer) &&
 		_ptrComparer(x.Pet, y.Pet, _petComparer))
 }
 
 var personComparer = cmp.Comparer(_personComparer)
 
 type person struct {
-	ID          int64   `sqlp:"id"`
-	NumChildren int     `sqlp:"num_children"`
-	FirstName   string  `sqlp:"first_name"`
-	LastName    string  `sqlp:"last_name"`
-	Child       *person `sqlp:"child"`
-	Pet         *pet    `sqlp:"pet"`
+	ID          int64    `sqlp:"id"`
+	NumChildren int      `sqlp:"num_children"`
+	FirstName   string   `sqlp:"first_name"`
+	LastName    string   `sqlp:"last_name"`
+	Child       *person  `sqlp:"child"`
+	Children    []person // For one to many tests
+	Pet         *pet     `sqlp:"pet"`
 	timestamps
 }
 

@@ -9,12 +9,13 @@ import (
 )
 
 type person struct {
-	ID          int64   `sqlp:"id"`
-	NumChildren int     `sqlp:"num_children"`
-	FirstName   string  `sqlp:"first_name"`
-	LastName    string  `sqlp:"last_name"`
-	Child       *person `sqlp:"child"`
-	Pet         *pet    `sqlp:"pet"`
+	ID          int64    `sqlp:"id"`
+	NumChildren int      `sqlp:"num_children"`
+	FirstName   string   `sqlp:"first_name"`
+	LastName    string   `sqlp:"last_name"`
+	Child       *person  `sqlp:"child"`    // For one to one examples
+	Children    []person `sqlp:"children"` // For one to many examples
+	Pet         *pet     `sqlp:"pet"`
 	timestamps
 }
 
@@ -54,7 +55,7 @@ func Example() {
 			id INTEGER PRIMARY KEY,
 			first_name TEXT,
 			last_name TEXT,
-			parent_id INTEGER,
+			parent_id INTEGER UNIQUE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)

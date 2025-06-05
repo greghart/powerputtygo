@@ -5,8 +5,10 @@ sqlp is a powerputty package to provide extensions to sql.
 Primarily driven from experience trying to consolidate too many ways of "doing the right thing" 
 when it comes to a persistence layer. 
 
-## Features
+## Goals and Features
 
+* Don't become an ORM
+  * We are building composable tools, not prescribing an ORM solution
 * Consistent and minimal "single path" APIs.
 * Contextual transactions to let you write tx agnostic methods cleanly.
 * `reflect`ive scanning support using struct tags.
@@ -200,9 +202,9 @@ Because `sql.Row` doesn't provide `sql.Rows`, and therefore no way to get column
 really provide any of the niceties without re-implementing it entirely. For now, this package avoids
 doing that, and you can just use the other APIs.
 
-### Embedded structs
+### Relationships (OneToOne / Embedded Structs)
 
-Using embedded structs to model relationships is a common use case in many domains.
+Using embedded structs to model hasOne relationships is a common use case in many domains.
 Eg. in our case above, a parent can have a child, but doesn't always, so a pointer to a child is 
 natural.
 
@@ -215,6 +217,17 @@ it detects we're scanning into those fields. For the generic
 This packages suggests handling this by utilizing COALESCE in your queries, to let scanning have
 one path. `sqlp` will setup any embed that is being selected into for a query -- it will then
 clean up any of these that were only populated with zero values.
+
+### Relationships (OneToMany / Embedded Slices)
+
+Similar to above, you may have a slice of children instead of a single child. The expectation could
+be to join a children table, and populate that slice with whatever children come in the result set.
+
+The complexity of handling this is much higher than the OneToOne case -- here, you would have 
+multiple rows that all correspond to one result.
+
+Because our goal is not to become an ORM, we don't handle this case manually.  but do showcase ways
+to handle this in the one to many example (see code/godoc).
 
 ### Field/column/parameter order 
 
