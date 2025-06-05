@@ -15,13 +15,19 @@ when it comes to a persistence layer.
   * Including nested struct and embedded struct support.
 * `Repository` pattern support, to provide a wrapper around specific entities.
 * Generic struct mapping scanning support to avoid sql tags for performance.
-* TODO: Bare minimum, easy to understand query builders (glorified string builders, no extra DSL)
+* Named parameter support in queries
 
 ### Single Path -- Exec, Query, QueryRow
 
-Forgo having the separate contextless method, and instead use these directly with context.
+Forgo having the separate contextless method, and keep your team from accidentally writing 
+un-cancelable long running queries, with a simple and reduced surface area:
 
 ```go
+db, err := sqlp.Open("sqlite", "./database.sqlite") // same API as sql.Open, just returns a sqlp.DB
+if err != nil {
+  log.Panicf("failed to connect to database: %v", err)
+}
+
 db.Exec(ctx, query, ...args)
 db.Query(ctx, query, ...args)
 db.QueryRow(ctx, query, ...args)
@@ -141,32 +147,32 @@ purposes. Generics allow us to approach similar goals without the performance ov
 mappers to handle mapping column names to target addresses in our struct that we want to scan into.
 
 ```go
-petMapper := Mapper[pet]{
+petMapper := sqlp.Mapper[pet]{
   "id":   func(p *pet) any { return &p.ID },
   "name": func(p *pet) any { return &p.Name },
   "type": func(p *pet) any { return &p.Type },
 }
-personMapper := Mapper[person]{
+personMapper := sqlp.Mapper[person]{
   "id":         func(p *person) any { return &p.ID },
   "first_name": func(p *person) any { return &p.FirstName },
   "last_name":  func(p *person) any { return &p.LastName },
 }
 // Support pet
-personMapper = MergeMappers(personMapper, petMapper, "pet", func(p *person) *pet {
+personMapper = sqlp.MergeMappers(personMapper, petMapper, "pet", func(p *person) *pet {
   if p.Pet == nil {
     p.Pet = &pet{}
   }
   return p.Pet
 })
 // Support children
-personMapper = MergeMappers(personMapper, personMapper, "child", func(p *person) *person {
+personMapper = sqlp.MergeMappers(personMapper, personMapper, "child", func(p *person) *person {
   if p.Child == nil {
     p.Child = &person{}
   }
   return p.Child
 })
 
-scanner := NewMappingScanner(rows, personMapper)
+scanner := sqlp.NewMappingScanner(rows, personMapper)
 for rows.Next() {
   p, err := scanner.Scan() // p is a person!
   if err != nil {
@@ -179,6 +185,23 @@ Note for these APIs, we must manually "touch" (initialize a 0 value of) any embe
 we're scanning into.
 Similarly, it would be up to consumer to nil out any such structs that are zero values after the 
 fact.
+
+### Named Parameters
+
+To help build larger queries with lots of placeholders, use named parameters even if your db driver
+doesn't support them. This just does dead simple string replacement, still utilizing placeholder
+args.
+
+```go
+q := sqlp.Named("SELECT * FROM test WHERE id = :id AND name = :name").
+  Map(map[string]any{
+    "name": "Alice",
+    "id":   1,
+  })
+// q.String() == "SELECT * FROM test WHERE id = ? AND name = ?"
+// q.Args() == []any{1, "Alice"}
+rows, err := c.Query(ctx, q.String(), q.Args()...)
+```
 
 ## Advanced thoughts
 
