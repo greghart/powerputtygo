@@ -1,21 +1,21 @@
 # sqlp
 
-sqlp is a powerputty package to provide extensions to sql.
+`sqlp` is a powerputty package to provide extensions to the `sql` package.
 
 Primarily driven from experience trying to consolidate too many ways of "doing the right thing" 
-when it comes to a persistence layer. 
+when it comes to the persistence layer. Note we are only concerned with behaviors interacting with
+the database directly -- query building helpers can be found in [queryp](../queryp/README.md)
 
 ## Goals and Features
 
-* Don't become an ORM
-  * We are building composable tools, not prescribing an ORM solution
 * Consistent and minimal "single path" APIs.
 * Contextual transactions to let you write tx agnostic methods cleanly.
 * `reflect`ive scanning support using struct tags.
   * Including nested struct and embedded struct support.
 * `Repository` pattern support, to provide a wrapper around specific entities.
 * Generic struct mapping scanning support to avoid sql tags for performance.
-* Named parameter support in queries
+
+## Examples
 
 ### Single Path -- Exec, Query, QueryRow
 
@@ -23,7 +23,7 @@ Forgo having the separate contextless method, and keep your team from accidental
 un-cancelable long running queries, with a simple and reduced surface area:
 
 ```go
-db, err := sqlp.Open("sqlite", "./database.sqlite") // same API as sql.Open, just returns a sqlp.DB
+db, err := sqlp.Open("sqlite", "./test.db") // same API as sql.Open, just returns a sqlp.DB
 if err != nil {
   log.Panicf("failed to connect to database: %v", err)
 }
@@ -80,7 +80,7 @@ type Person struct {
   ID int
   // Column specified with struct tag
   Name string `sqlp:"name"`
-  // Column that won't be written in writes, but will be read
+  // Column that won't be written in writes, but will be read (eg. `COUNT(*) AS num_children`)
   NumChildren int `sqlp:"num_children,virtual"`
   // structs should come in `_` separated (configurable)
   // Eg. child1_name, child2_name
@@ -186,35 +186,18 @@ we're scanning into.
 Similarly, it would be up to consumer to nil out any such structs that are zero values after the 
 fact.
 
-### Named Parameters
+## More Context
 
-To help build larger queries with lots of placeholders, use named parameters even if your db driver
-doesn't support them. This just does dead simple string replacement, still utilizing placeholder
-args.
-
-```go
-q := sqlp.Named("SELECT * FROM test WHERE id = :id AND name = :name").
-  Map(map[string]any{
-    "name": "Alice",
-    "id":   1,
-  })
-// q.String() == "SELECT * FROM test WHERE id = ? AND name = ?"
-// q.Args() == []any{1, "Alice"}
-rows, err := c.Query(ctx, q.String(), q.Args()...)
-```
-
-## Advanced thoughts
-
-Brainstorming and additional concext that influence the design of this module and suggestions.
+Brainstorming and additional context that influenced the design of this module.
 
 ### Scanning
 
 Scanning is a big subject, and sqlp tries to support multiple strategies. However, we must 
 acknowledge some limitations with having a consistent API across these strategies. Because go
 doesn't support method generics, we need a layer outside the `DB` connection for those APIs. 
-Conversely, scanning into a destination does not -- `sqlp` unconventionally provides distinct API
-options, and it's up to developer which strategies to adopt -- ideally you just choose one option 
-and stick to it for consistency.
+Conversely, reflective scanning into a destination does not need generics, and can be attached 
+straight to `DB`. `sqlp` unconventionally provides distinct API options, and it's up to the 
+developer which strategies to adopt -- ideally you just choose one option for consistency.
 
 * Scan into (no generic types) -- `DB.Get`/`DB.Select`
 * Scan out (generic types) -- `Repository` / `ReflectScanner` / `MappingScanner`
@@ -252,6 +235,9 @@ multiple rows that all correspond to one result.
 Because our goal is not to become an ORM, we don't handle this case manually.  but do showcase ways
 to handle this in the one to many example (see code/godoc).
 
+Additionally, powerputty provides the `mapperp` package to help you map data across multiple rows
+into your domain entities, with support for one to many use cases.
+
 ### Field/column/parameter order 
 
 One of the maintainability concerns with using vanilla `sql` is the requirements to keep the order
@@ -259,7 +245,6 @@ of your fields (whether selecting or using args) coordinated. For basic examples
 to be a problem, but for more advanced queries with tens of fields or arguments, refactoring
 becomes error prone and manual.
 
-TODO: Introduce the params placeholder struct.
 
 ### Keep the ingredients simple
 
@@ -270,5 +255,3 @@ We're also not introducing any code gen.
 
 Ideally, you can just write your queries using basic go, and use a couple utility structs to help
 make it maintainable.
-
-TODO: Show our version of query building

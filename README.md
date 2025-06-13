@@ -11,4 +11,10 @@ I'm also just using it as a central place to keep my learnings and knowledge in 
 
 ## Packages
 
-* [sqlp](./sqlp/README.md) 
+* Persistence layer
+  * A primary goal here is to avoid becoming an ORM. There should be relatively little magic;
+    we are building composable tools, not prescribing an ORM solution
+  * [sqlp](./sqlp/README.md) SQL extensions
+  * [queryp](./queryp/README.md) Helpers to write SQL queries more cleanly
+  * [mapperp](./mapperp/README.md) Map flat rows of data into domain models, "orm lite"
+* `errcmp` -- error matcher for tests ([source](https://github.com/google/exposure-notifications-server/blob/main/pkg/errcmp/errcmp.go))

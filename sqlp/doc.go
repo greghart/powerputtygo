@@ -5,5 +5,5 @@
 //   - Including nested struct and embedded struct support.
 //   - `Repository` pattern support, to provide a wrapper around specific entities.
 //   - Generic struct mapping scanning support to avoid sql tags for performance.
-//   - TODO: Bare minimum, easy to understand query builders (glorified string builders, no extra DSL)
+//   - Bare minimum, easy to understand query builders (glorified string builders, no extra DSL)
 package sqlp

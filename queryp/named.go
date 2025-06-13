@@ -1,4 +1,4 @@
-package query
+package queryp
 
 import (
 	"fmt"
@@ -24,14 +24,22 @@ func Named(query string) *NamedQuery {
 	}
 }
 
+// WithPlaceholderer sets the Placeholderer for the NamedQuery.
 func (n *NamedQuery) WithPlaceholderer(p Placeholderer) *NamedQuery {
 	n.reset()
 	n.placeholderer = p
 	return n
 }
 
-// Map adds the given map of params to the query.
-func (n *NamedQuery) Map(m map[string]any) *NamedQuery {
+// WithQuery sets the query string for the NamedQuery.
+func (n *NamedQuery) WithQuery(q string) *NamedQuery {
+	n.reset()
+	n.query = q
+	return n
+}
+
+// Params adds the given map of params to the NamedQuery.
+func (n *NamedQuery) Params(m map[string]any) *NamedQuery {
 	n.reset()
 	for key, value := range m {
 		n.params[key] = value
@@ -39,13 +47,14 @@ func (n *NamedQuery) Map(m map[string]any) *NamedQuery {
 	return n
 }
 
-// Add adds a single named parameter to the query.
-func (n *NamedQuery) Add(key string, v any) *NamedQuery {
+// Param adds a single named parameter to the NamedQuery.
+func (n *NamedQuery) Param(key string, v any) *NamedQuery {
 	n.reset()
 	n.params[key] = v
 	return n
 }
 
+// String returns the final built query with all named parameters replaced.
 func (n *NamedQuery) String() string {
 	if n.builtArgs == nil {
 		n.build()
@@ -53,11 +62,20 @@ func (n *NamedQuery) String() string {
 	return n.builtQuery
 }
 
+// Args returns the arguments for the query, with named parameters replaced by their placeholders.
 func (n *NamedQuery) Args() []any {
 	if n.builtArgs == nil {
 		n.build()
 	}
 	return n.builtArgs.Args()
+}
+
+// Execute returns the query and arguments for the named query.
+func (n *NamedQuery) Execute() (string, []any) {
+	if n.builtArgs == nil {
+		n.build()
+	}
+	return n.builtQuery, n.builtArgs.Args()
 }
 
 ////////////////////////////////////////////////////////////////////////////////

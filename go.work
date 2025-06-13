@@ -1,4 +1,9 @@
 go 1.24.1
 
 use ./sqlp
+
 use ./errcmp
+
+use ./queryp
+
+use ./mapperp

@@ -335,7 +335,7 @@ func grandchildrenSetup(ctx context.Context, db *DB) person {
 			Child: &person{
 				ID: id3, FirstName: "Lil Lil Johnnie", LastName: "Doe",
 			},
-			Pet: &pet{ID: 1, Name: "Eevee", Type: "Dog"},
+			Pet: &pet{ID: 1, Name: "Eevee", Type: stringPtr("Dog")},
 		},
 	}
 }
@@ -357,7 +357,7 @@ func selectGrandchildrenAndPets(_wheres ...string) string {
 	return fmt.Sprintf(
 		`
 		SELECT 
-			p.id, p.first_name, p.last_name,
+			p.id, p.first_name, p.last_name, p.created_at, p.updated_at,
 			COALESCE(child.id, 0) AS child_id,
 			COALESCE(child.first_name, "") AS child_first_name,
 			COALESCE(child.last_name, "") AS child_last_name,
@@ -366,13 +366,13 @@ func selectGrandchildrenAndPets(_wheres ...string) string {
 			COALESCE(grandchild.last_name, "") AS child_child_last_name,
 			COALESCE(pet.id, 0) AS pet_id,
 			COALESCE(pet.name, "") AS pet_name,
-			COALESCE(pet.type, "") AS pet_type,
+			pet.type AS pet_type,
 			COALESCE(child_pet.id, 0) AS child_pet_id,
 			COALESCE(child_pet.name, "") AS child_pet_name,
-			COALESCE(child_pet.type, "") AS child_pet_type,
+			child_pet.type AS child_pet_type,
 			COALESCE(grandchild_pet.id, 0) AS child_child_pet_id,
 			COALESCE(grandchild_pet.name, "") AS child_child_pet_name,
-			COALESCE(grandchild_pet.type, "") AS child_child_pet_type
+			grandchild_pet.type AS child_child_pet_type
 		FROM people p
 		LEFT JOIN people child ON p.id = child.parent_id
 		LEFT JOIN people grandchild ON child.id = grandchild.parent_id
@@ -452,6 +452,9 @@ func testDBSetup(t *testing.T, db *DB) (*DB, context.Context, func()) {
 }
 
 func isWithinDuration(t1 time.Time, t2 time.Time, d time.Duration) bool {
+	if t1.IsZero() || t2.IsZero() { // if the "expectation" is 0, we don't care
+		return true
+	}
 	return time.Duration(math.Abs(float64(t1.Sub(t2)))) <= d
 }
 
@@ -483,7 +486,7 @@ func _sliceComparer[T any](a1, a2 []T, cmp func(a, b T) bool) bool {
 func _petComparer(x, y pet) bool {
 	return (x.ID == y.ID &&
 		x.Name == y.Name &&
-		x.Type == y.Type)
+		cmp.Equal(x.Type, y.Type))
 }
 
 func _personComparer(x, y person) bool {
@@ -500,23 +503,27 @@ func _personComparer(x, y person) bool {
 var personComparer = cmp.Comparer(_personComparer)
 
 type person struct {
-	ID          int64    `sqlp:"id"`
-	NumChildren int      `sqlp:"num_children"`
-	FirstName   string   `sqlp:"first_name"`
-	LastName    string   `sqlp:"last_name"`
-	Child       *person  `sqlp:"child"`
-	Children    []person // For one to many tests
-	Pet         *pet     `sqlp:"pet"`
+	ID         int64    `sqlp:"id"`
+	FirstName  string   `sqlp:"first_name"`
+	LastName   string   `sqlp:"last_name"`
+	NullString *string  `sqlp:"null_string"`
+	Child      *person  `sqlp:"child"`
+	Children   []person // For one to many tests
+	Pet        *pet     `sqlp:"pet"`
 	timestamps
 }
 
 type pet struct {
-	ID   int64  `sqlp:"id"`
-	Name string `sqlp:"name"`
-	Type string `sqlp:"type"`
+	ID   int64   `sqlp:"id"`
+	Name string  `sqlp:"name"`
+	Type *string `sqlp:"type"`
 }
 
 type timestamps struct {
 	CreatedAt time.Time `sqlp:"created_at"`
 	UpdatedAt time.Time `sqlp:"updated_at"`
+}
+
+func stringPtr(s string) *string {
+	return &s
 }

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"database/sql"
 	"fmt"
+	"log"
 	"reflect"
 	"slices"
 	"strings"
@@ -257,9 +258,17 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 			}
 		default:
 			// Field deeper on our struct, traverse path and `touch` ptrs along the way.
+			i := i
 			sr.targeters[i] = func(v reflect.Value) any {
-				for _, i := range path {
-					v = reflect.Indirect(v).Field(i)
+				if cols[i] == "pet_type" {
+					log.Println("Type field?!?!")
+				}
+				for j, fieldI := range path {
+					v = reflect.Indirect(v).Field(fieldI)
+					// Don't touch our leafs
+					if j == len(path)-1 {
+						continue
+					}
 					if v.Kind() == reflect.Ptr && v.IsNil() {
 						alloc := reflect.New(deref(v.Type()))
 						v.Set(alloc)
@@ -316,8 +325,11 @@ func (sr *FieldsRows) Scan(_val ...reflect.Value) (reflect.Value, error) {
 			continue
 		}
 		elem := v.Elem() // trust setup, will be pointers
-		if elem.IsValid() && elem.IsZero() {
-			v.Set(reflect.Zero(v.Type()))
+		if elem.IsValid() {
+			zeroer, isZeroer := elem.Interface().(isZeroer)
+			if elem.IsZero() || (isZeroer && zeroer.IsZero()) {
+				v.Set(reflect.Zero(v.Type()))
+			}
 		}
 	}
 
@@ -377,4 +389,8 @@ func deref(t reflect.Type) reflect.Type {
 		t = t.Elem()
 	}
 	return t
+}
+
+type isZeroer interface {
+	IsZero() bool
 }

@@ -87,8 +87,8 @@ func TestRepository_Get(t *testing.T) {
 			t.Fatalf("failed to get: %v", err)
 		}
 		expected := grandparent
-		if !cmp.Equal(p, expected, personComparer) {
-			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, p, personComparer))
+		if !cmp.Equal(*p, expected, personComparer) {
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, *p, personComparer))
 		}
 	})
 
@@ -98,8 +98,8 @@ func TestRepository_Get(t *testing.T) {
 			t.Fatalf("failed to get: %v", err)
 		}
 		expected := person{ID: grandparent.ID, FirstName: "John", LastName: "Doe"}
-		if !cmp.Equal(p, expected, personComparer) {
-			t.Errorf("gotten person unexpected:\n%v", cmp.Diff(expected, p, personComparer))
+		if !cmp.Equal(*p, expected, personComparer) {
+			t.Errorf("gotten person unexpected:\n%v", cmp.Diff(expected, *p, personComparer))
 		}
 	})
 }

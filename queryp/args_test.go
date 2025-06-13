@@ -1,4 +1,4 @@
-package query
+package queryp
 
 import (
 	"testing"
@@ -18,7 +18,7 @@ func TestArgs(t *testing.T) {
 	}
 	expected := []any{"Alice", 30}
 	if !cmp.Equal(args.Args(), expected) {
-		t.Errorf("given args did not match expected\n%v", cmp.Diff(args.Args(), expected))
+		t.Errorf("given args did not match expected\n%v", cmp.Diff(expected, args.Args()))
 	}
 }
 

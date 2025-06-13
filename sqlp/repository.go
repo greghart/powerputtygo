@@ -30,7 +30,7 @@ func (r *Repository[E]) Validate() error {
 // Find retrieves an entity by its ID, assuming `id` is the primary key.
 // Note, this is setup for reference as much as usage. Such methods are trivial to write yourself,
 // rather than unnecessarily complicate struct tags to tag pks and other fields.
-func (r *Repository[E]) Find(ctx context.Context, id int) (E, error) {
+func (r *Repository[E]) Find(ctx context.Context, id int) (*E, error) {
 	return r.Get(
 		ctx,
 		"SELECT * FROM "+r.table+" WHERE id = ?",
@@ -38,11 +38,12 @@ func (r *Repository[E]) Find(ctx context.Context, id int) (E, error) {
 	)
 }
 
-func (r *Repository[E]) Get(ctx context.Context, q string, args ...any) (E, error) {
-	var entity E
+func (r *Repository[E]) Get(ctx context.Context, q string, args ...any) (*E, error) {
+	var entity *E
 	entities, err := r.Select(ctx, q, args...)
 	if len(entities) > 0 {
-		entity = entities[0]
+		e := entities[0] // copy out of array
+		entity = &e
 	}
 	return entity, err
 }

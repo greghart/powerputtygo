@@ -1,4 +1,4 @@
-package sqlp_test
+package mapperp_test
 
 import (
 	"context"
@@ -6,15 +6,14 @@ import (
 	"time"
 
 	"github.com/greghart/powerputtygo/sqlp"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type person struct {
-	ID        int64    `sqlp:"id"`
-	FirstName string   `sqlp:"first_name"`
-	LastName  string   `sqlp:"last_name"`
-	Child     *person  `sqlp:"child"`    // For one to one examples
-	Children  []person `sqlp:"children"` // For one to many examples
-	Pet       *pet     `sqlp:"pet"`
+	ID        int64  `sqlp:"id"`
+	FirstName string `sqlp:"first_name"`
+	LastName  string `sqlp:"last_name"`
+	Pets      []pet
 	timestamps
 }
 

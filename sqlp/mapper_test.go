@@ -58,6 +58,8 @@ func personMapper(t *testing.T) Mapper[person] {
 		"id":         func(p *person) any { return &p.ID },
 		"first_name": func(p *person) any { return &p.FirstName },
 		"last_name":  func(p *person) any { return &p.LastName },
+		"created_at": func(p *person) any { return &p.CreatedAt },
+		"updated_at": func(p *person) any { return &p.UpdatedAt },
 	}
 	personMapper = MergeMappers(personMapper, petMapper, "pet", func(p *person) *pet {
 		if p.Pet == nil {

@@ -1,4 +1,6 @@
-GOFMT_FILES = $(shell go list -f '{{.Dir}}' ./... | grep -v '/pb')
+# Makefile to help standardize development for all our modules.
+
+GOFMT_FILES = $(shell go list -f '{{.Dir}}' -m | grep -v '/pb')
 GO_FILES = $(shell find . -name \*.go)
 MD_FILES = $(shell find . -name \*.md)
 
@@ -15,20 +17,18 @@ diff-check:
 		fi
 .PHONY: diff-check
 
-# lint uses the same linter as CI and tries to report the same results running
-# locally. There is a chance that CI detects linter errors that are not found
-# locally, but it should be rare.
+# golangci-lint team does not recommend using go tool, so this is an implicit dependency.
 lint:
-	@go tool golangci-lint run
+	@echo ${GOFMT_FILES} | xargs golangci-lint run
 .PHONY: lint
 
+# TODO: Can use go test work in 1.25
 test:
-	@go test \
+	@echo ${GOFMT_FILES} | xargs go test \
 		-shuffle=on \
 		-count=1 \
 		-short \
-		-timeout=5m \
-		./...
+		-timeout=5m
 .PHONY: test
 
 test-acc:
