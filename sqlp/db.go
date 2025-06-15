@@ -107,6 +107,29 @@ func (db *DB) txContext(ctx context.Context) *sql.Tx {
 ////////////////////////////////////////////////////////////////////////////////
 // Reflective APIs
 
+// TODO: Refactor to separate destination generator and column mapping
+// A repository should be able to use a generic column mapper automatically with the same API (ie.
+// set it up as a repo attribute)
+// TODO: One option is to just only have generic destination! That simplifies the API a fair bit.
+
+// Get is a convenience function to quickly get an entity out of a query.
+func Get[E any](ctx context.Context, db *DB, query string, args ...any) (*E, error) {
+	var entity E
+	if err := db.Get(ctx, &entity, query, args...); err != nil {
+		return nil, err
+	}
+	return &entity, nil
+}
+
+// Select is a convenience function to quickly get a slice of entities out of a query.
+func Select[E any](ctx context.Context, db *DB, query string, args ...any) ([]E, error) {
+	var entities []E
+	if err := db.Select(ctx, &entities, query, args...); err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
 // Get runs a query and scans the single row result into dest, using reflection to scan.
 func (db *DB) Get(ctx context.Context, dest any, query string, args ...any) error {
 	rows, err := db.Query(ctx, query, args...)

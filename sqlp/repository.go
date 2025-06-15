@@ -18,7 +18,12 @@ type Repository[E any] struct {
 
 func NewRepository[E any](db *DB, table string) *Repository[E] {
 	var entity E
-	return &Repository[E]{DB: db, entity: entity, table: table, t: reflect.TypeOf(entity)}
+	return &Repository[E]{
+		DB:     db,
+		entity: entity,
+		table:  table,
+		t:      reflect.TypeOf(entity),
+	}
 }
 
 // Runs reflection process to ensure entity is setup correctly

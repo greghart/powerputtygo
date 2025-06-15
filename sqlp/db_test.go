@@ -180,8 +180,20 @@ func TestDB_Get(t *testing.T) {
 	defer cleanup()
 
 	grandparent := grandchildrenSetup(ctx, db)
+
+	t.Run("Get generic multi table query joins", func(t *testing.T) {
+		p, err := Get[person](ctx, db, selectGrandchildrenAndPets("p.id = ?"), grandparent.ID)
+		if err != nil {
+			t.Fatalf("failed to get: %v", err)
+		}
+		expected := grandparent
+		if !cmp.Equal(*p, expected, personComparer) {
+			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, p, personComparer))
+		}
+	})
+
 	t.Run("multi table query joins", func(t *testing.T) {
-		p := person{}
+		var p person
 		err := db.Get(ctx, &p, selectGrandchildrenAndPets("p.id = ?"), grandparent.ID)
 		if err != nil {
 			t.Fatalf("failed to get: %v", err)
@@ -283,6 +295,122 @@ func TestDB_RunInTx(t *testing.T) {
 		errcmp.MustMatch(t, err, "")
 		if p.ID != 0 {
 			t.Fatalf("got %v, expected no person", p)
+		}
+	})
+}
+
+// BenchmarkDB_Methods benchmarks the various scanning methods.
+// Obviously because this is hitting a db, YMMV, but it's a good sanity check that you're not
+// doing something horrible, and can check allocs (eg. custom mapping is almost as good as vanilla,
+// both of which are twice as good as others)
+func BenchmarkDB_Scanning(b *testing.B) {
+	db, _, cleanup := testDB(b)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	defer cleanup()
+
+	grandparent := grandchildrenSetup(ctx, db)
+	query := selectGrandchildrenAndPets("p.id = ?")
+	noop := func(x ...interface{}) {}
+
+	b.Run("Select (generic dest, reflect mapping)", func(b *testing.B) {
+		for b.Loop() {
+			people, err := Select[person](ctx, db, query, grandparent.ID)
+			if err != nil {
+				b.Fatalf("failed to get: %v", err)
+			}
+			noop(people)
+		}
+	})
+
+	b.Run("Select (reflect dest, reflect mapping)", func(b *testing.B) {
+		for b.Loop() {
+			var people []person
+			err := db.Select(ctx, &people, query, grandparent.ID)
+			if err != nil {
+				b.Fatalf("failed to get: %v", err)
+			}
+			noop(people)
+		}
+	})
+
+	repo := NewRepository[person](db, "people")
+	b.Run("Repository (generic dest, reflective mapping)", func(b *testing.B) {
+		for b.Loop() {
+			people, err := repo.Select(ctx, query, grandparent.ID)
+			if err != nil {
+				b.Fatalf("failed to get: %v", err)
+			}
+			noop(people)
+		}
+	})
+
+	pm := personMapper(b)
+	b.Run("MappingScanner (generic dest, generic mapping)", func(b *testing.B) {
+		for b.Loop() {
+			rows, err := db.Query(ctx, query, grandparent.ID)
+			if err != nil {
+				b.Fatalf("failed to query: %v", err)
+			}
+			defer rows.Close()
+
+			scanner := NewMappingScanner(rows, pm)
+			if err != nil {
+				b.Fatalf("failed to create scanner: %v", err)
+			}
+
+			var people []person
+			for rows.Next() {
+				p, err := scanner.Scan()
+				if err != nil {
+					b.Fatalf("failed to scan row: %v", err)
+				}
+				people = append(people, p)
+			}
+			if err := rows.Err(); err != nil {
+				log.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("Vanilla scanner (manual dest, manual mapping)", func(b *testing.B) {
+		for b.Loop() {
+			rows, err := db.Query(ctx, query, grandparent.ID)
+			if err != nil {
+				b.Fatalf("failed to query: %v", err)
+			}
+			defer rows.Close()
+
+			var people []person
+			for rows.Next() {
+				p := person{
+					// Child
+					Child: &person{
+						// Grandchild
+						Child: &person{
+							Pet: &pet{},
+						},
+						Pet: &pet{},
+					},
+					Pet: &pet{},
+				}
+				err := rows.Scan(
+					&p.ID, &p.FirstName, &p.LastName,
+					&p.CreatedAt, &p.UpdatedAt,
+					&p.Pet.ID, &p.Pet.Name, &p.Pet.Type,
+					&p.Child.ID, &p.Child.FirstName, &p.Child.LastName,
+					&p.Child.Pet.ID, &p.Child.Pet.Name, &p.Child.Pet.Type,
+					&p.Child.Child.ID, &p.Child.Child.FirstName, &p.Child.Child.LastName,
+					&p.Child.Child.Pet.ID, &p.Child.Child.Pet.Name, &p.Child.Child.Pet.Type,
+				)
+				if err != nil {
+					b.Fatalf("failed to scan row: %v", err)
+				}
+				people = append(people, p)
+			}
+			if err := rows.Err(); err != nil {
+				log.Fatal(err)
+			}
 		}
 	})
 }
@@ -401,7 +529,7 @@ func testPG(t *testing.T) (*DB, context.Context, func()) {
 }
 
 // testDB returns a test database and a cleanup function.
-func testDB(t *testing.T) (*DB, context.Context, func()) {
+func testDB(t testing.TB) (*DB, context.Context, func()) {
 	t.Helper()
 
 	db, err := Open("sqlite3", "./test.db")
@@ -411,7 +539,7 @@ func testDB(t *testing.T) (*DB, context.Context, func()) {
 	return testDBSetup(t, db)
 }
 
-func testDBSetup(t *testing.T, db *DB) (*DB, context.Context, func()) {
+func testDBSetup(t testing.TB, db *DB) (*DB, context.Context, func()) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

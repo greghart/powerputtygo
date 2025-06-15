@@ -41,7 +41,7 @@ func TestReflectDestScanner(t *testing.T) {
 }
 
 func TestMappingScanner(t *testing.T) {
-	personMapper := personMapper(t)
+	pm := personMapper(t)
 
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
@@ -56,7 +56,7 @@ func TestMappingScanner(t *testing.T) {
 	}
 	defer rows.Close()
 
-	scanner := NewMappingScanner(rows, personMapper)
+	scanner := NewMappingScanner(rows, pm)
 
 	var people []person
 	for rows.Next() {

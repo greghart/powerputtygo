@@ -142,9 +142,10 @@ person, err := repository.Find(ctx, 1) // SELECT * FROM people WHERE id = 1 LIMI
 
 ### Generics/mapping scanning support
 
-Reflect is very useful for helping make declarative models, but ultimately may be too slow for your
-purposes. Generics allow us to approach similar goals without the performance overhead. We can use
-mappers to handle mapping column names to target addresses in our struct that we want to scan into.
+Reflect is very useful for helping make declarative models, but ultimately may be too slow or 
+fragile for your purposes. Generics allow us to approach similar goals without the performance or
+abstraction overhead. We can use mappers to handle mapping column names to target addresses in our 
+struct that we want to scan into.
 
 ```go
 petMapper := sqlp.Mapper[pet]{
@@ -192,15 +193,46 @@ Brainstorming and additional context that influenced the design of this module.
 
 ### Scanning
 
-Scanning is a big subject, and sqlp tries to support multiple strategies. However, we must 
-acknowledge some limitations with having a consistent API across these strategies. Because go
-doesn't support method generics, we need a layer outside the `DB` connection for those APIs. 
-Conversely, reflective scanning into a destination does not need generics, and can be attached 
-straight to `DB`. `sqlp` unconventionally provides distinct API options, and it's up to the 
-developer which strategies to adopt -- ideally you just choose one option for consistency.
+Scanning is a big subject, and sqlp tries to support multiple strategies. Because of this 
+complexity, it's important to have clear semantics, so that it's obvious which APIs to use and why
+based on user requirements. Scanning is used in the same way as `database/sql` -- copying one row 
+of data to some value pointers.
 
-* Scan into (no generic types) -- `DB.Get`/`DB.Select`
-* Scan out (generic types) -- `Repository` / `ReflectScanner` / `MappingScanner`
+There are two basic concepts for scanning sql rows: destination setup and column mapping.
+
+#### Destination
+
+Where does our data end up?
+
+`sqlp` provides support to setup structs automatically as a destination for your sql data.
+There are two potential paradigms to achieve this: using generics, or using reflection.
+Because go doesn't support method generics, we need a layer outside the `DB` connection for 
+generic APIs. Conversely, reflective scanning into a destination does not need generics, and can
+be attached as methods directly to the `DB`.
+
+#### Column Mapping 
+
+How do we map column names to our structs? For column `foo`, which field of which struct should we
+target?
+
+`sqlp` provides support for mapping columns into arbitrarily embedded struct fields.
+Similarly to destination, we have reflective and generic APIs for this.
+
+* Reflective column mapping -- `DB.Get` / `DB.Select` / `Get` / `Select` / `ReflectScanner`/ `Repository`
+* Generic column mapping -- `Mapper` / `MappingScanner`
+
+#### Table
+
+| Method | Destination | Column | Notes |
+| ------ | ----------- | ------ | ----- |
+| `DB.Get` | Reflect | Reflect | Scan into a destination struct |
+| `DB.Select` | Reflect | Reflect | Scan into a destination slice of structs |
+| `ReflectDestScanner` | Reflect | Reflect | Used under the hood by `DB.Get` and `DB.Select` |
+| `Get` | Generic | Reflect | Function to scan out a destination struct |
+| `Select` | Generic | Reflect | Function to scan out a destination slice of structs |
+| `Repository` | Generic | Reflect | |
+| `ReflectScanner` | Generic | Reflect | Used by `Repository` |
+| `MappingScanner` | Generic | Generic | Only row by row scanning supported for now |
 
 ### Row
 
@@ -219,7 +251,7 @@ The difficulty lies in scanning when selecting a parent and left joining their c
 * If there is not a child, we will have nulls left joined, that have to scan *somewhere*
 
 Because of this, `sqlp` reflect methods will automatically touch nil embedded pointer structs if
-it detects we're scanning into those fields. For the generic 
+it detects we're scanning into those fields. For the generic case, you can handle this manually.
 This packages suggests handling this by utilizing COALESCE in your queries, to let scanning have
 one path. `sqlp` will setup any embed that is being selected into for a query -- it will then
 clean up any of these that were only populated with zero values.
@@ -245,10 +277,11 @@ of your fields (whether selecting or using args) coordinated. For basic examples
 to be a problem, but for more advanced queries with tens of fields or arguments, refactoring
 becomes error prone and manual.
 
+powerputty provides the `queryp` package to help coordinate query readability and maintainablity.
 
 ### Keep the ingredients simple
 
-Taking inspiration from sqlc, we're not trying to write a non SQL DSL for making queries. Even
+Taking inspiration from sqlc, we're not trying to write a new SQL DSL for making queries. Even
 sqlc introduces its' own DSL for macros, like conditional filtering.
 
 We're also not introducing any code gen.

@@ -8,6 +8,10 @@ import (
 	"github.com/greghart/powerputtygo/sqlp/internal/reflectp"
 )
 
+type OutScanner[E any] interface {
+	Scan() (E, error)
+}
+
 // ReflectScanner uses a generic type parameter to return values instead of scanning into destinations
 type ReflectScanner[E any] struct {
 	*ReflectDestScanner

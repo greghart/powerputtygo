@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"database/sql"
 	"fmt"
-	"log"
 	"reflect"
 	"slices"
 	"strings"
@@ -260,9 +259,6 @@ func NewFieldsRows(f *Fields, rows *sql.Rows) (*FieldsRows, error) {
 			// Field deeper on our struct, traverse path and `touch` ptrs along the way.
 			i := i
 			sr.targeters[i] = func(v reflect.Value) any {
-				if cols[i] == "pet_type" {
-					log.Println("Type field?!?!")
-				}
 				for j, fieldI := range path {
 					v = reflect.Indirect(v).Field(fieldI)
 					// Don't touch our leafs

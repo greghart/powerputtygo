@@ -47,7 +47,7 @@ func TestNewMapper(t *testing.T) {
 
 // //////////////////////////////////////////////////////////////////////////////
 
-func personMapper(t *testing.T) Mapper[person] {
+func personMapper(t testing.TB) Mapper[person] {
 	t.Helper()
 	petMapper := Mapper[pet]{
 		"id":   func(p *pet) any { return &p.ID },
