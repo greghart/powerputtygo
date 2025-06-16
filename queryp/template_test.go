@@ -8,7 +8,7 @@ import (
 
 func TestTemplate(t *testing.T) {
 	tests := map[string]struct {
-		t            *TemplateBuilder
+		t            Templater
 		expectedQ    string
 		expectedArgs []any
 	}{

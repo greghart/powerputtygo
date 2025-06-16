@@ -6,6 +6,16 @@ import (
 	"text/template"
 )
 
+// Templater describes shared interface of Template and TemplateBuilder.
+type Templater interface {
+	Text() *template.Template
+	Placeholderer(p Placeholderer) Templater
+	Param(key string, val any) Templater
+	Params(params map[string]any) Templater
+	Include(associations ...string) Templater
+	Execute() (string, []any, error)
+}
+
 // Template represents a SQL template.
 // Any method on Template spins off a mutable builder so this can be re-used freely.
 type Template struct {
@@ -30,32 +40,37 @@ func Must(t *Template, err error) *Template {
 	return t
 }
 
-// Build returns a TemplateBuilder that can be used to build custom data for the template.
-func (t *Template) Build() *TemplateBuilder {
+// Text returns the underlying text/template.Template.
+func (t *Template) Text() *template.Template {
+	return t.text
+}
+
+// Build returns a forked Templater that can be used to build custom data for the template.
+func (t *Template) Build() Templater {
 	return newTemplateBuilder(t)
 }
 
 // Placeholderer sets how to replaced named parameters (defaults to Sqlite style '?')
 // Proxies to templateBuilder under the hood.
-func (t *Template) Placeholderer(p Placeholderer) *TemplateBuilder {
+func (t *Template) Placeholderer(p Placeholderer) Templater {
 	return t.Build().Placeholderer(p)
 }
 
 // Param sets a named parameter value.
 // Proxies to templateBuilder under the hood.
-func (t *Template) Param(key string, val any) *TemplateBuilder {
+func (t *Template) Param(key string, val any) Templater {
 	return t.Build().Param(key, val)
 }
 
 // Params sets multiple named parameters at a time (additive with existing ones).
 // Proxies to templateBuilder under the hood.
-func (t *Template) Params(params map[string]any) *TemplateBuilder {
+func (t *Template) Params(params map[string]any) Templater {
 	return t.Build().Params(params)
 }
 
 // Include marks associations to be included in the template.
 // Proxies to templateBuilder under the hood.
-func (t *Template) Include(associations ...string) *TemplateBuilder {
+func (t *Template) Include(associations ...string) Templater {
 	return t.Build().Include(associations...)
 }
 
@@ -82,23 +97,27 @@ func newTemplateBuilder(t *Template) *TemplateBuilder {
 	}
 }
 
-func (t *TemplateBuilder) Placeholderer(p Placeholderer) *TemplateBuilder {
+func (t *TemplateBuilder) Text() *template.Template {
+	return t.Template.Text()
+}
+
+func (t *TemplateBuilder) Placeholderer(p Placeholderer) Templater {
 	t.placeholderer = p
 	return t
 }
 
-func (t *TemplateBuilder) Param(key string, val any) *TemplateBuilder {
+func (t *TemplateBuilder) Param(key string, val any) Templater {
 	return t.Params(map[string]any{key: val})
 }
 
-func (t *TemplateBuilder) Params(params map[string]any) *TemplateBuilder {
+func (t *TemplateBuilder) Params(params map[string]any) Templater {
 	for k, v := range params {
 		t.params[k] = v
 	}
 	return t
 }
 
-func (t *TemplateBuilder) Include(associations ...string) *TemplateBuilder {
+func (t *TemplateBuilder) Include(associations ...string) Templater {
 	for _, assoc := range associations {
 		t.includes[assoc] = true
 	}
