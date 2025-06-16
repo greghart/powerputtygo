@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"database/sql"
 	"fmt"
+	"log"
 	"reflect"
 	"slices"
 	"strings"
@@ -180,14 +181,24 @@ func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), 
 	}
 
 	for i := range cols {
+		if cols[i] == "grandchild_pet_id" {
+			log.Printf("checking grandchild pet")
+		}
 		field, ok := f.ByColumnName[cols[i]]
 		if ok {
 			cb(field, append(path[:], field.Index...), true)
 			continue
 		}
-		// Could be a sub field
-		root, rest, _ := strings.Cut(cols[i], "_")
-		field, ok = f.ByColumnName[root]
+		// Could be a sub field, go for largest root first
+		components := strings.Split(cols[i], "_")
+		var root, rest string
+		for j := len(components); j > 1; j-- {
+			root = strings.Join(components[:j-1], "_")
+			if field, ok = f.ByColumnName[root]; ok {
+				rest = strings.Join(components[j-1:], "_")
+				break
+			}
+		}
 		// Column not found, report and continue.
 		if !ok || field.Fields() == nil {
 			cb(nil, nil, true)

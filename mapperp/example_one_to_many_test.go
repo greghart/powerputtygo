@@ -26,22 +26,17 @@ func Example_mapOneToMany() {
 		LEFT JOIN pets pet ON pet.parent_id = p.id
 		WHERE p.id = 1
 	`
-	rows, err := db.Query(context.Background(), query)
-	if err != nil {
-		log.Panicf("query failed: %v", err)
-	}
-	defer rows.Close()
-
 	// Use sqlp to scan rows easily
 	type personRow struct { // A custom type for what we're querying specifically
 		person
 		pet pet `sqlp:"pet"`
 	}
-	// Use sqlp to scan data into our flat row based struct
-	scanner, err := sqlp.NewReflectScanner[personRow](rows)
+
+	rows, err := sqlp.Query[personRow](context.Background(), db, query)
 	if err != nil {
-		log.Panicf("failed to reflect person scanner: %v", err)
+		log.Panicf("query failed: %v", err)
 	}
+	defer rows.Close()
 
 	// Use mapperp to map these rows to our domain models
 	personMapper := mapperp.One( // First off, we want just one person
@@ -55,7 +50,7 @@ func Example_mapOneToMany() {
 	var person person
 
 	for i := 0; rows.Next(); i++ {
-		row, err := scanner.Scan()
+		row, err := rows.ScanOut()
 		if err != nil {
 			log.Panicf("failed to scan row: %v", err)
 		}

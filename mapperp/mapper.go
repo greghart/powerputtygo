@@ -32,7 +32,7 @@ func Slice[Row any, Out any](
 	getData DataGetter[Row, Out],
 	rest ...Mapper[Row, []Out],
 ) Mapper[Row, []Out] {
-	currID := int64(0)
+	byID := make(map[int64]bool)
 	return All(
 		append(
 			[]Mapper[Row, []Out]{func(out *[]Out, row *Row, i int) {
@@ -41,17 +41,21 @@ func Slice[Row any, Out any](
 				if datum == nil {
 					return
 				}
-				// check new entity based on ID
+				// check new entity based on ID not being seen or 0 value
 				id := getID(datum)
-				if id == currID {
+				if id == 0 {
 					return
 				}
+				if _, ok := byID[id]; ok {
+					return
+				}
+				byID[id] = true
+
 				// initialize if nil
 				if *out == nil {
 					*out = []Out{}
 				}
 				*out = append(*out, *datum)
-				currID = id
 			}},
 			rest...,
 		)...,
@@ -77,6 +81,7 @@ func Inner[Row any, Out any, In any](
 	}
 }
 
+// InnerSlice sets up a sub mapper into our current output, where the target is itself a slice.
 func InnerSlice[Row any, Out any, In any](
 	getInner func(e *Out) *[]In,
 	getID Identifier[In, int64],
@@ -86,7 +91,8 @@ func InnerSlice[Row any, Out any, In any](
 	return Inner(getInner, Slice(getID, getData, inner...))
 }
 
-func Last[Row any, Out any](
+// Take sets up a sub mapper for the current element of a slice output.
+func Take[Row any, Out any](
 	inner ...Mapper[Row, Out],
 ) Mapper[Row, []Out] {
 	return func(out *[]Out, row *Row, i int) {

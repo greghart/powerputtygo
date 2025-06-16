@@ -143,7 +143,7 @@ func TestMapper_All(t *testing.T) {
 			rowMapper := Slice(
 				func(e *person) int64 { return e.ID },
 				func(row *row) *person { return &row.person },
-				Last(
+				Take(
 					// Pets
 					InnerSlice(
 						func(e *person) *[]pet {

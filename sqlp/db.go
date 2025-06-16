@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"reflect"
 )
 
 // DB extends the stdlib sql.DB type to add additional behavior.
@@ -104,84 +103,45 @@ func (db *DB) txContext(ctx context.Context) *sql.Tx {
 	return nil
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Reflective APIs
+// Query is a convenience function to get a *sqlp.Rows for scanning out E.
+func Query[E any](ctx context.Context, db *DB, query string, args ...any) (*Rows[E], error) {
+	return WrapRows[E](db.Query(ctx, query, args...))
+}
 
-// TODO: Refactor to separate destination generator and column mapping
-// A repository should be able to use a generic column mapper automatically with the same API (ie.
-// set it up as a repo attribute)
-// TODO: One option is to just only have generic destination! That simplifies the API a fair bit.
-
-// Get is a convenience function to quickly get an entity out of a query.
+// Get is a convenience function to quickly get an entity out of a query using reflection.
 func Get[E any](ctx context.Context, db *DB, query string, args ...any) (*E, error) {
-	var entity E
-	if err := db.Get(ctx, &entity, query, args...); err != nil {
-		return nil, err
+	rows, err := Query[E](ctx, db, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query: %w", err)
 	}
-	return &entity, nil
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	e, err := rows.ScanOut()
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+	return &e, rows.Err()
 }
 
-// Select is a convenience function to quickly get a slice of entities out of a query.
+// Select is a convenience function to quickly get a slice of entities out of a query using reflection.
 func Select[E any](ctx context.Context, db *DB, query string, args ...any) ([]E, error) {
-	var entities []E
-	if err := db.Select(ctx, &entities, query, args...); err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
-// Get runs a query and scans the single row result into dest, using reflection to scan.
-func (db *DB) Get(ctx context.Context, dest any, query string, args ...any) error {
-	rows, err := db.Query(ctx, query, args...)
+	rows, err := Query[E](ctx, db, query, args...)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to query: %w", err)
 	}
 	defer rows.Close()
 
-	scanner := NewReflectDestScanner(rows)
-
-	if rows.Next() {
-		err := scanner.Scan(dest)
-		if err != nil {
-			return err
-		}
-	}
-
-	return rows.Err()
-}
-
-// Select runs a query and scans the results into dest, using reflection to scan.
-func (db *DB) Select(ctx context.Context, dest any, query string, args ...any) error {
-	// Validate destination types, we want a pointer to a slice of structs (or pointers to structs).
-	destType := reflect.TypeOf(dest)
-	if destType.Kind() != reflect.Pointer {
-		return fmt.Errorf("select given %T, wanted a pointer", dest)
-	}
-	sliceType := destType.Elem()
-	if sliceType.Kind() != reflect.Slice {
-		return fmt.Errorf("select given %T, wanted a slice", dest)
-	}
-	// Do reflection so we can error early before query
-	elemType := sliceType.Elem()
-	destV := reflect.ValueOf(dest).Elem()
-
-	// Run the query
-	rows, err := db.Query(ctx, query, args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	scanner := NewReflectDestScanner(rows)
-
+	var results []E
 	for rows.Next() {
-		val := reflect.New(elemType)
-		err := scanner.Scan(val.Interface())
+		e, err := rows.ScanOut()
 		if err != nil {
-			return fmt.Errorf("failed to scan row: %w", err)
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		destV.Set(reflect.Append(destV, val.Elem()))
+		results = append(results, e)
 	}
 
-	return rows.Err()
+	return results, rows.Err()
 }

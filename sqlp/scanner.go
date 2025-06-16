@@ -8,47 +8,34 @@ import (
 	"github.com/greghart/powerputtygo/sqlp/internal/reflectp"
 )
 
-type OutScanner[E any] interface {
-	Scan() (E, error)
-}
-
-// ReflectScanner uses a generic type parameter to return values instead of scanning into destinations
+// ReflectScanner uses a generic type parameter to instantiate values instead of scanning into
+// pre-existing destinations.
 type ReflectScanner[E any] struct {
-	*ReflectDestScanner
+	dest *ReflectDestScanner
 }
 
-func NewReflectScanner[E any](rows *sql.Rows) (*ReflectScanner[E], error) {
-	// Type parameter lets us check validity immediately
-	var e E
-	destFields, err := reflectp.FieldsFactory(reflect.TypeOf(e))
-	if err != nil {
-		return nil, fmt.Errorf("failed to reflect fields for %T: %w", reflect.TypeOf(e), err)
-	}
-	fRows, err := destFields.Rows(rows)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get fields rows: %w", err)
-	}
+func NewReflectScanner[E any](rows *sql.Rows) *ReflectScanner[E] {
 	return &ReflectScanner[E]{
-		ReflectDestScanner: &ReflectDestScanner{
-			Rows:  rows,
-			fRows: fRows,
-		},
-	}, nil
+		dest: NewReflectDestScanner(rows),
+	}
 }
 
-// Scan will scan into the given destination using reflection to map columns to fields.
-// Note, if called multiple times with different destinations, will just panic.
+// Scan will out E using reflection to map columns to fields.
 func (rs *ReflectScanner[E]) Scan() (E, error) {
 	var e E
-	err := rs.ReflectDestScanner.Scan(&e)
-	return e, err
+
+	// Use the ReflectDestScanner to scan into a new value
+	if err := rs.dest.Scan(&e); err != nil {
+		return e, fmt.Errorf("failed to scan: %w", err)
+	}
+
+	return e, nil
 }
 
 // //////////////////////////////////////////////////////////////////////////////
 
-// ReflectDestScanner is similar to ReflectScanner, but scans into a destination rather than
-// initializing new datums itself. Useful for considerate memory management and a more conventional
-// `Scan` API
+// ReflectDestScanner is most similar to standard `sql` package, using reflection to dynamically
+// map columns into struct field addresses.
 type ReflectDestScanner struct {
 	*sql.Rows
 	fRows *reflectp.FieldsRows

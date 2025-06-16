@@ -18,18 +18,18 @@ func Example_reflect() {
 	err = db.RunInTx(context.Background(), func(ctx context.Context) error {
 		// Select into slice
 		// Will fail before query if Person is not setup correctly
-		people := []person{}
-		err := db.Select(ctx, &people, "SELECT * FROM people")
+		people, err := sqlp.Select[person](ctx, db, "SELECT * FROM people")
 		if err != nil {
 			return fmt.Errorf("select people failed: %w", err)
 		}
+		log.Printf("found %d people\n", len(people))
 
 		// Get into a struct
-		p := person{}
-		err = db.Get(ctx, &p, "SELECT * FROM people LIMIT 1")
+		p, err := sqlp.Get[person](ctx, db, "SELECT * FROM people LIMIT 1")
 		if err != nil {
 			return fmt.Errorf("get person failed: %w", err)
 		}
+		log.Printf("found person %v\n", p.ID)
 
 		// Or for row by row:
 		rows, err := db.Query(ctx, "SELECT * FROM people")
@@ -37,12 +37,8 @@ func Example_reflect() {
 			return fmt.Errorf("query people failed: %w", err)
 		}
 		defer rows.Close()
-		scanner, err := sqlp.NewReflectScanner[person](rows)
-		// If the struct is not setup correctly, this will fail
-		// Eg. duplicate column names
-		if err != nil {
-			return fmt.Errorf("failed to create scanner: %w", err)
-		}
+		scanner := sqlp.NewReflectScanner[person](rows)
+
 		for rows.Next() {
 			p, err := scanner.Scan()
 			if err != nil {

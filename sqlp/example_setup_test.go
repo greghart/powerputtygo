@@ -15,6 +15,7 @@ type person struct {
 	Child     *person  `sqlp:"child"`    // For one to one examples
 	Children  []person `sqlp:"children"` // For one to many examples
 	Pet       *pet     `sqlp:"pet"`
+	Pets      []pet    `sqlp:"pets"`
 	timestamps
 }
 

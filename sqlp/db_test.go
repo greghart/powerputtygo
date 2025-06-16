@@ -65,7 +65,7 @@ func TestDB_QueryRow(t *testing.T) {
 	}
 }
 
-func TestDB_Select(t *testing.T) {
+func TestSelect(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 
@@ -74,8 +74,7 @@ func TestDB_Select(t *testing.T) {
 	albert := albertSetup(ctx, db) // nolint:errcheck
 
 	t.Run("multi table query with one to one joins", func(t *testing.T) {
-		people := []person{}
-		err := db.Select(ctx, &people, selectGrandchildrenAndPets())
+		people, err := Select[person](ctx, db, selectGrandchildrenAndPets())
 		if err != nil {
 			t.Fatalf("failed to select: %v", err)
 		}
@@ -89,8 +88,7 @@ func TestDB_Select(t *testing.T) {
 	})
 
 	t.Run("simple one table query", func(t *testing.T) {
-		people := []person{}
-		err := db.Select(ctx, &people, "SELECT id, first_name, last_name FROM people")
+		people, err := Select[person](ctx, db, "SELECT id, first_name, last_name FROM people")
 		if err != nil {
 			t.Fatalf("failed to select: %v", err)
 		}
@@ -106,8 +104,7 @@ func TestDB_Select(t *testing.T) {
 	})
 
 	t.Run("to slice of people pointers", func(t *testing.T) {
-		people := []*person{}
-		err := db.Select(ctx, &people, "SELECT id, first_name, last_name FROM people")
+		_, err := Select[*person](ctx, db, "SELECT id, first_name, last_name FROM people")
 		errcmp.MustMatch(t, err, "given ptr, expected struct")
 		if err == nil {
 			t.Fatalf("expected error, got nil")
@@ -137,10 +134,7 @@ func TestDB_Select(t *testing.T) {
 		}
 		defer rows.Close()
 
-		scanner, err := NewReflectScanner[personRow](rows)
-		if err != nil {
-			t.Fatalf("failed to reflect person scanner: %v", err)
-		}
+		scanner := NewReflectScanner[personRow](rows)
 
 		people := []person{}
 		pending := person{}
@@ -166,7 +160,6 @@ func TestDB_Select(t *testing.T) {
 			}
 		}
 		grabPending()
-		t.Logf("scanned %d people", len(people))
 
 		expected := parents
 		if !cmp.Equal(people, expected, personComparer) {
@@ -175,7 +168,7 @@ func TestDB_Select(t *testing.T) {
 	})
 }
 
-func TestDB_Get(t *testing.T) {
+func TestGet(t *testing.T) {
 	db, ctx, cleanup := testDB(t)
 	defer cleanup()
 
@@ -193,32 +186,29 @@ func TestDB_Get(t *testing.T) {
 	})
 
 	t.Run("multi table query joins", func(t *testing.T) {
-		var p person
-		err := db.Get(ctx, &p, selectGrandchildrenAndPets("p.id = ?"), grandparent.ID)
+		p, err := Get[person](ctx, db, selectGrandchildrenAndPets("p.id = ?"), grandparent.ID)
 		if err != nil {
 			t.Fatalf("failed to get: %v", err)
 		}
 		expected := grandparent
-		if !cmp.Equal(p, expected, personComparer) {
+		if !cmp.Equal(*p, expected, personComparer) {
 			t.Errorf("selected people unexpected:\n%v", cmp.Diff(expected, p, personComparer))
 		}
 	})
 
 	t.Run("simple one table query", func(t *testing.T) {
-		p := person{}
-		err := db.Get(ctx, &p, "SELECT id, first_name, last_name FROM people")
+		p, err := Get[person](ctx, db, "SELECT id, first_name, last_name FROM people")
 		if err != nil {
 			t.Fatalf("failed to get: %v", err)
 		}
 		expected := person{ID: grandparent.ID, FirstName: "John", LastName: "Doe"}
-		if !cmp.Equal(p, expected, personComparer) {
+		if !cmp.Equal(*p, expected, personComparer) {
 			t.Errorf("gotten person unexpected:\n%v", cmp.Diff(expected, p, personComparer))
 		}
 	})
 
 	t.Run("to person pointer", func(t *testing.T) {
-		p := &person{}
-		err := db.Get(ctx, &p, "SELECT id, first_name, last_name FROM people")
+		_, err := Get[*person](ctx, db, "SELECT id, first_name, last_name FROM people")
 		errcmp.MustMatch(t, err, "given ptr, expected struct")
 	})
 }
@@ -234,16 +224,15 @@ func TestDB_RunInTx(t *testing.T) {
 			_, err := db.Exec(ctx, "INSERT INTO people (id, first_name, last_name) VALUES ($1, $2, $3)", id, "John", "Doe")
 			errcmp.MustMatch(t, err, "")
 			// person not found committed yet
-			p := person{}
-			err = db.Get(nonTxCtx, &p, "SELECT * FROM people WHERE id = $1", id)
+			p, err := Get[person](nonTxCtx, db, "SELECT * FROM people WHERE id = $1", id)
 			errcmp.MustMatch(t, err, "")
-			if p.ID != 0 {
+			if p != nil {
 				t.Fatalf("got %v, expected no person", p)
 			}
 			// is found within transaction?
-			err = db.Get(ctx, &p, "SELECT * FROM people WHERE id = $1", id)
+			p, err = Get[person](ctx, db, "SELECT * FROM people WHERE id = $1", id)
 			errcmp.MustMatch(t, err, "")
-			if p.ID == 0 {
+			if p == nil {
 				t.Fatalf("found no person, expected person")
 			}
 			return nil
@@ -251,10 +240,9 @@ func TestDB_RunInTx(t *testing.T) {
 		errcmp.MustMatch(t, err, "")
 
 		// person committed now
-		p := person{}
-		err = db.Get(ctx, &p, "SELECT * FROM people WHERE id = $1", id)
+		p, err := Get[person](ctx, db, "SELECT * FROM people WHERE id = $1", id)
 		errcmp.MustMatch(t, err, "")
-		if p.ID == 0 {
+		if p == nil {
 			t.Fatalf("found no person, expected person")
 		}
 	})
@@ -273,10 +261,9 @@ func TestDB_RunInTx(t *testing.T) {
 		})
 		errcmp.MustMatch(t, err, "paniced")
 
-		p := person{}
-		err = db.Get(ctx, &p, "SELECT * FROM people WHERE id = $1", id)
+		p, err := Get[person](ctx, db, "SELECT * FROM people WHERE id = $1", id)
 		errcmp.MustMatch(t, err, "")
-		if p.ID != 0 {
+		if p != nil {
 			t.Fatalf("got %v, expected no person", p)
 		}
 	})
@@ -290,10 +277,9 @@ func TestDB_RunInTx(t *testing.T) {
 		})
 		errcmp.MustMatch(t, err, "test error")
 
-		p := person{}
-		err = db.Get(ctx, &p, "SELECT * FROM people WHERE id = $1", id)
+		p, err := Get[person](ctx, db, "SELECT * FROM people WHERE id = $1", id)
 		errcmp.MustMatch(t, err, "")
-		if p.ID != 0 {
+		if p != nil {
 			t.Fatalf("got %v, expected no person", p)
 		}
 	})
@@ -316,17 +302,6 @@ func BenchmarkDB_Scanning(b *testing.B) {
 	b.Run("Select (generic dest, reflect mapping)", func(b *testing.B) {
 		for b.Loop() {
 			people, err := Select[person](ctx, db, query, grandparent.ID)
-			if err != nil {
-				b.Fatalf("failed to get: %v", err)
-			}
-			noop(people)
-		}
-	})
-
-	b.Run("Select (reflect dest, reflect mapping)", func(b *testing.B) {
-		for b.Loop() {
-			var people []person
-			err := db.Select(ctx, &people, query, grandparent.ID)
 			if err != nil {
 				b.Fatalf("failed to get: %v", err)
 			}
@@ -638,6 +613,7 @@ type person struct {
 	Child      *person  `sqlp:"child"`
 	Children   []person // For one to many tests
 	Pet        *pet     `sqlp:"pet"`
+	Pets       []pet    `sqlp:"pets"`
 	timestamps
 }
 

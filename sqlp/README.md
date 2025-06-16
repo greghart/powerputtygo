@@ -102,21 +102,21 @@ type Timestamps struct {
   UpdatedAt time.time `sqlp:"updated_at"`
 }
 
+// Note because golang has no generic function methods (https://github.com/golang/go/issues/49085),
+// we provide separate generic functions that take db as a parameter
+
 // Select into slice
 // Will fail before query if Person is not setup correctly
-people := []person{}
-err := db.Select(ctx, &people, "SELECT * FROM people")
+people, err := sqlp.Select[person](ctx, db, "SELECT * FROM people")
 
 // Get into a struct
-p := person{}
-err := db.Get(ctx, &p, "SELECT * FROM people LIMIT 1")
+person, err := sqlp.Get[person](ctx, db, "SELECT * FROM people LIMIT 1")
 
 // Or for row by row:
-// The first scan caches the reflection for performance, so must be called with same destination
-rows, err := db.Query(ctx, "SELECT * FROM people")
-scanner := NewReflectScanner[person](rows)
+// The first scan automatically caches all reflection for performance
+rows, err := sqlp.Query[person](ctx, "SELECT * FROM people")
 for rows.Next() {
-  p, err := scanner.Scan()
+  p, err := rows.Scan()
 }
 ```
 
@@ -173,9 +173,9 @@ personMapper = sqlp.MergeMappers(personMapper, personMapper, "child", func(p *pe
   return p.Child
 })
 
-scanner := sqlp.NewMappingScanner(rows, personMapper)
+rows.SetMapper(personMapper)
 for rows.Next() {
-  p, err := scanner.Scan() // p is a person!
+  p, err := rows.Scan() // p is a person!
   if err != nil {
     log.Panicf("failed to scan row: %v", err)
   }
@@ -195,44 +195,25 @@ Brainstorming and additional context that influenced the design of this module.
 
 Scanning is a big subject, and sqlp tries to support multiple strategies. Because of this 
 complexity, it's important to have clear semantics, so that it's obvious which APIs to use and why
-based on user requirements. Scanning is used in the same way as `database/sql` -- copying one row 
-of data to some value pointers.
+based on user requirements. Scanning as a term is used in the same way as `database/sql` -- copying 
+one row of data into some values. While `database/sql` asks you to scan into pointers, `sqlp` 
+asks you to define what your destination is using generics. We then use that to automatically
+reflect and populate your desired targe.
 
-There are two basic concepts for scanning sql rows: destination setup and column mapping.
-
-#### Destination
-
-Where does our data end up?
-
-`sqlp` provides support to setup structs automatically as a destination for your sql data.
-There are two potential paradigms to achieve this: using generics, or using reflection.
 Because go doesn't support method generics, we need a layer outside the `DB` connection for 
-generic APIs. Conversely, reflective scanning into a destination does not need generics, and can
-be attached as methods directly to the `DB`.
+generic APIs. If you don't want this, you are of course welcome to ignore these APIs completely.
 
 #### Column Mapping 
 
 How do we map column names to our structs? For column `foo`, which field of which struct should we
 target?
 
-`sqlp` provides support for mapping columns into arbitrarily embedded struct fields.
-Similarly to destination, we have reflective and generic APIs for this.
+`sqlp` provides support for standard mapping using struct tags, as well as defining custom generics
+mappers to manually thread data into arbitrarily embedded struct fields.
 
-* Reflective column mapping -- `DB.Get` / `DB.Select` / `Get` / `Select` / `ReflectScanner`/ `Repository`
-* Generic column mapping -- `Mapper` / `MappingScanner`
-
-#### Table
-
-| Method | Destination | Column | Notes |
-| ------ | ----------- | ------ | ----- |
-| `DB.Get` | Reflect | Reflect | Scan into a destination struct |
-| `DB.Select` | Reflect | Reflect | Scan into a destination slice of structs |
-| `ReflectDestScanner` | Reflect | Reflect | Used under the hood by `DB.Get` and `DB.Select` |
-| `Get` | Generic | Reflect | Function to scan out a destination struct |
-| `Select` | Generic | Reflect | Function to scan out a destination slice of structs |
-| `Repository` | Generic | Reflect | |
-| `ReflectScanner` | Generic | Reflect | Used by `Repository` |
-| `MappingScanner` | Generic | Generic | Only row by row scanning supported for now |
+Ultimately, this boils down to a decision of which "scanner" you'd like to use -- `ReflectScanner`
+(default), or defining a manual column `Mapper`. Both `sqlp.Rows` and `sqlp.Repository` let you 
+opt-in to a mapper, which will be used over reflection for the performance benefit.
 
 ### Row
 
