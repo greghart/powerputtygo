@@ -23,7 +23,7 @@ Forgo having the separate contextless method, and keep your team from accidental
 un-cancelable long running queries, with a simple and reduced surface area:
 
 ```go
-db, err := sqlp.Open("sqlite", "./test.db") // same API as sql.Open, just returns a sqlp.DB
+db, err := sqlp.Open("sqlite", ":memory:") // same API as sql.Open, just returns a sqlp.DB
 if err != nil {
   log.Panicf("failed to connect to database: %v", err)
 }

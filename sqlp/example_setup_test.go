@@ -32,7 +32,7 @@ type timestamps struct {
 
 // Example shows the setup used by almost all examples in this documentation.
 func Example() {
-	db, err := sqlp.Open("sqlite3", "./test.db")
+	db, err := sqlp.Open("sqlite3", ":memory:")
 	if err != nil {
 		log.Panicf("testDB failed to open: %v", err)
 	}

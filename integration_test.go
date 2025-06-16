@@ -159,7 +159,7 @@ func TestIntegration_DB(t *testing.T) {
 func testDB(t testing.TB) (*sqlp.DB, context.Context, func()) {
 	t.Helper()
 
-	db, err := sqlp.Open("sqlite3", "./test.db")
+	db, err := sqlp.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("testDB failed to open: %v", err)
 	}

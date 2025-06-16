@@ -12,7 +12,7 @@ import (
 // to the developer to handle aggregating the multiple rows of data into one resulting struct.
 func Example_mapOneToMany() {
 	// assuming people database is already setup
-	db, err := sqlp.Open("sqlite3", "./test.db")
+	db, err := sqlp.Open("sqlite3", ":memory:")
 	if err != nil {
 		log.Panicf("testDB failed to open: %v", err)
 	}

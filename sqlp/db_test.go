@@ -507,7 +507,7 @@ func testPG(t *testing.T) (*DB, context.Context, func()) {
 func testDB(t testing.TB) (*DB, context.Context, func()) {
 	t.Helper()
 
-	db, err := Open("sqlite3", "./test.db")
+	db, err := Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("testDB failed to open: %v", err)
 	}
