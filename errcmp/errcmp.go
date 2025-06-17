@@ -20,19 +20,48 @@ import (
 	"testing"
 )
 
-func MustMatch(t testing.TB, err error, want string) {
+func MustMatch(t testing.TB, err error, want string, _extra ...string) {
 	t.Helper()
+	fatalf := func(format string, args ...interface{}) {
+		if len(_extra) > 0 {
+			t.Fatalf(format+" [extra: %s]", append(args, _extra[0])...)
+		}
+		t.Fatalf(format, args...)
+	}
 
 	if err == nil {
 		if want != "" {
-			t.Fatalf("missing error, want: %q got: nil", want)
+			fatalf("missing error, want: %q got: nil", want)
 		}
 		// want == "" is success
 	} else {
 		if want == "" {
-			t.Fatalf("unexpected error: got: %v", err)
+			fatalf("unexpected error: got: %v", err)
 		} else if !strings.Contains(err.Error(), want) {
-			t.Fatalf("wrong error; want: %q got: %v", want, err)
+			fatalf("wrong error; want: %q got: %v", want, err)
+		}
+	}
+}
+
+func Match(t testing.TB, err error, want string, _extra ...string) {
+	t.Helper()
+	errf := func(format string, args ...interface{}) {
+		if len(_extra) > 0 {
+			t.Errorf(format+" [extra: %s]", append(args, _extra[0])...)
+		}
+		t.Errorf(format, args...)
+	}
+
+	if err == nil {
+		if want != "" {
+			errf("missing error, want: %q got: nil", want)
+		}
+		// want == "" is success
+	} else {
+		if want == "" {
+			errf("unexpected error: got: %v", err)
+		} else if !strings.Contains(err.Error(), want) {
+			errf("wrong error; want: %q got: %v", want, err)
 		}
 	}
 }
