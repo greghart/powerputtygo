@@ -43,19 +43,16 @@ func TestTypeFields(t *testing.T) {
 			},
 			"name": {
 				Column:     "name",
-				Tag:        true,
 				Index:      []int{1},
 				DirectType: reflect.TypeOf(""),
 			},
 			"child1": {
 				Column:     "child1",
-				Tag:        true,
 				Index:      []int{2},
 				DirectType: reflect.TypeOf(Person{}),
 			},
 			"child2": {
 				Column:     "child2",
-				Tag:        true,
 				Index:      []int{3},
 				DirectType: reflect.TypeOf(Person{}),
 			},
@@ -66,13 +63,11 @@ func TestTypeFields(t *testing.T) {
 			},
 			"created_at": {
 				Column:     "created_at",
-				Tag:        true,
 				Index:      []int{6, 0},
 				DirectType: reflect.TypeOf(time.Time{}),
 			},
 			"updated_at": {
 				Column:     "updated_at",
-				Tag:        true,
 				Index:      []int{6, 1},
 				DirectType: reflect.TypeOf(time.Time{}),
 			},

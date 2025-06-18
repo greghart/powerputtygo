@@ -13,7 +13,7 @@ addresses for scanning purposes._
 ## Goals and Features
 
 * Help cutdown on scaffolding when querying large amounts of data across tables from sql
-* Declaratively show what's happening in a non magical way
+* Declaratively show what's happening in a non magical way (ie. don't use reflect)
 
 ## Background
 

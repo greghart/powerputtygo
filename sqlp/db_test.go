@@ -606,14 +606,13 @@ func _personComparer(x, y person) bool {
 var personComparer = cmp.Comparer(_personComparer)
 
 type person struct {
-	ID         int64    `sqlp:"id"`
-	FirstName  string   `sqlp:"first_name"`
-	LastName   string   `sqlp:"last_name"`
-	NullString *string  `sqlp:"null_string"`
-	Child      *person  `sqlp:"child"`
-	Children   []person // For one to many tests
-	Pet        *pet     `sqlp:"pet"`
-	Pets       []pet    `sqlp:"pets"`
+	ID        int64    `sqlp:"id"`
+	FirstName string   `sqlp:"first_name"`
+	LastName  string   `sqlp:"last_name"`
+	Child     *person  `sqlp:"child"`
+	Children  []person // For one to many tests
+	Pet       *pet     `sqlp:"pet"`
+	Pets      []pet
 	timestamps
 }
 
@@ -630,4 +629,18 @@ type timestamps struct {
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+type personID struct {
+	person
+}
+
+func (p personID) ID() any {
+	return p.person.ID
+}
+
+func (p personID) IDColumn() string {
+	return "id"
 }

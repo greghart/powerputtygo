@@ -18,10 +18,14 @@ import (
 type Field struct {
 	Column string
 
-	Tag        bool
-	Index      []int
-	DirectType reflect.Type // Direct type of field, equal to Type unless pointer
-	Type       reflect.Type
+	// Whether this field is read-only, meaning it should not be used for inserts/updatesbe scanned into.
+	ReadOnly bool
+	// Full field index to this field from our root struct
+	Index []int
+	// Direct type of field, equal to Type unless pointer
+	DirectType reflect.Type
+	// Type of field, may be a pointer.
+	Type reflect.Type
 
 	// Cached sub fields
 	fields *Fields // Fields of the struct, if this is a struct.
@@ -128,28 +132,32 @@ func newFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Fields, erro
 
 		field := Field{
 			Column:     column,
-			Tag:        tagged,
+			ReadOnly:   !tagged || opts.Contains("readonly"),
 			Index:      []int{i},
 			DirectType: ft,
 			Type:       sf.Type,
 		}
+		// Recursively touch structs to error early.
 		if _, ok := visited[ft]; ft.Kind() == reflect.Struct && !ok {
-			// Recursively touch structs to error early.
-			embedded, err := newFields(ft, visited)
+			_, err := newFields(ft, visited)
 			if err != nil {
 				return nil, fmt.Errorf("failed to process sub struct %s: %w", sf.Name, err)
 			}
-			// Promote all columnar embedded fields
-			if promote {
-				for k, f := range embedded.ByColumnName {
-					col := k
-					f.Index = append([]int{i}, f.Index...) // prepend our index
-					if tagged {
-						col = column + "_" + k
-					}
-					if add(col, f) {
-						return nil, fmt.Errorf("duplicate column name %s in embedded struct %s", k, sf.Name)
-					}
+		}
+		// Promote all columnar embedded fields
+		if promote {
+			embedded, err := newFields(ft)
+			if err != nil {
+				return nil, fmt.Errorf("failed to process promoted sub struct %s: %w", sf.Name, err)
+			}
+			for k, f := range embedded.ByColumnName {
+				col := k
+				f.Index = append([]int{i}, f.Index...) // prepend our index
+				if tagged {
+					col = column + "_" + k
+				}
+				if add(col, f) {
+					return nil, fmt.Errorf("duplicate column name %s in embedded struct %s", k, sf.Name)
 				}
 			}
 		}
@@ -166,6 +174,24 @@ func newFields(t reflect.Type, _visited ...map[reflect.Type]bool) (*Fields, erro
 
 func (f *Fields) Rows(rows *sql.Rows) (*FieldsRows, error) {
 	return NewFieldsRows(f, rows)
+}
+
+// WriteFields returns the fields that can be written to (ie. are actual columns in table).
+// This is based on struct tags and heuristics around anonymous embeds.
+func (f *Fields) Writable() map[string]*Field {
+	out := make(map[string]*Field, len(f.ByColumnName))
+	for col, field := range f.ByColumnName {
+		// Embedded structs arent' columns (unless they're promoted, which happened already)
+		if field.Fields() != nil {
+			continue
+		}
+		// read only fields are not written.
+		if field.ReadOnly || field.Fields() != nil {
+			continue
+		}
+		out[col] = field
+	}
+	return out
 }
 
 ////////////////////////////////////////////////////////////////////////////////

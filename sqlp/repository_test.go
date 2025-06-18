@@ -1,9 +1,11 @@
 package sqlp
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/greghart/powerputtygo/errcmp"
 )
 
 func TestRepository_Validate(t *testing.T) {
@@ -71,6 +73,64 @@ func TestRepository_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRepository_Insert(t *testing.T) {
+	db, ctx, cleanup := testDB(t)
+	defer cleanup()
+
+	repository := NewRepository[person](db, "people")
+
+	t.Run("inserts the column like fields as expected", func(t *testing.T) {
+		p := person{
+			ID:        -1,
+			FirstName: "Joe",
+			LastName:  "Schmoe",
+		}
+		res, err := repository.Insert(ctx, p)
+		errcmp.MustMatch(t, err, "", "insert failed")
+		id, err := res.LastInsertId()
+		errcmp.MustMatch(t, err, "", "no insert id")
+
+		fetched, err := repository.Find(ctx, id)
+		errcmp.MustMatch(t, err, "", fmt.Sprintf("couldn't fetch id %d", id))
+		p.ID = fetched.ID
+		if !cmp.Equal(*fetched, p, personComparer) {
+			t.Errorf("updated entity mis-match (-got +want):\n%s", cmp.Diff(*fetched, p, personComparer))
+		}
+	})
+}
+
+func TestRepository_Update(t *testing.T) {
+	db, ctx, cleanup := testDB(t)
+	defer cleanup()
+
+	grandparent := grandchildrenSetup(ctx, db)
+
+	t.Run("non-identifiable entity", func(t *testing.T) {
+		repository := NewRepository[person](db, "people")
+
+		p := grandparent
+		p.FirstName = "UPDATED"
+		_, err := repository.Update(ctx, p)
+		errcmp.MustMatch(t, err, "does not implement Identifiable")
+	})
+
+	t.Run("identifiable entity", func(t *testing.T) {
+		repository := NewRepository[personID](db, "people")
+
+		p := personID{grandparent}
+		p.FirstName = "UPDATED"
+		_, err := repository.Update(ctx, p)
+		errcmp.MustMatch(t, err, "", "could not update")
+
+		updated, err := repository.Get(ctx, "SELECT * FROM people WHERE id = ?", grandparent.ID)
+		errcmp.MustMatch(t, err, "", "failed to get updated grandparent")
+
+		if updated.FirstName != p.FirstName {
+			t.Errorf("updated first name %s, wanted %s", updated.FirstName, p.FirstName)
+		}
+	})
 }
 
 func TestRepository_Get(t *testing.T) {

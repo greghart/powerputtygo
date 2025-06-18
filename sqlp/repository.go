@@ -2,6 +2,7 @@ package sqlp
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"reflect"
 
@@ -45,7 +46,7 @@ func (r *Repository[E]) SetMapper(mapper Mapper[E]) {
 // Find retrieves an entity by its ID, assuming `id` is the primary key.
 // Note, this is setup for reference as much as usage. Such methods are trivial to write yourself,
 // rather than unnecessarily complicate struct tags to tag pks and other fields.
-func (r *Repository[E]) Find(ctx context.Context, id int) (*E, error) {
+func (r *Repository[E]) Find(ctx context.Context, id int64) (*E, error) {
 	return r.Get(
 		ctx,
 		"SELECT * FROM "+r.table+" WHERE id = ?",
@@ -83,4 +84,16 @@ func (r *Repository[E]) Select(ctx context.Context, q string, args ...any) ([]E,
 	}
 
 	return results, rows.Err()
+}
+
+func (r *Repository[E]) Insert(ctx context.Context, e E) (sql.Result, error) {
+	return Insert(ctx, r.DB, r.table, e)
+}
+
+func (r *Repository[E]) Update(ctx context.Context, e E) (sql.Result, error) {
+	idable, ok := any(e).(Identifiable)
+	if !ok {
+		return nil, fmt.Errorf("entity %T does not implement Identifiable interface", e)
+	}
+	return Update(ctx, r.DB, r.table, idable)
 }

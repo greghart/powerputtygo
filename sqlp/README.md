@@ -66,13 +66,13 @@ scan into a struct using `reflect`. `sqlp` expands on this idea with a couple ad
   * we want to select a subset of the struct to fill in
 * embedded struct fields
   * we want to have embedded structs also populated by the query results
-* TODO: write support -- update and insert structs
+* write support -- update and insert structs
   * we want to avoid becoming an ORM, so this is an intentionally thin and basic layer, just
     helping write concise code for the basic cases
   * by default, all non-struct type fields are assumed to be direct columns, as well as fields
-    of embedded structs
-  * set `column` tag to set a struct's fields as columns 
-  * set `virtual` tag to remove a non-struct type field as a column
+    of anonymous embedded structs
+  * set `promote` tag to promote a struct's fields upwards
+  * set `readonly` tag to signal a field should only be read (aggregates, auto gens, etc.)
 
 ```go
 type Person struct {
@@ -81,7 +81,7 @@ type Person struct {
   // Column specified with struct tag
   Name string `sqlp:"name"`
   // Column that won't be written in writes, but will be read (eg. `COUNT(*) AS num_children`)
-  NumChildren int `sqlp:"num_children,virtual"`
+  NumChildren int `sqlp:"num_children,readonly"`
   // structs should come in `_` separated (configurable)
   // Eg. child1_name, child2_name
   Child1 *Person `sqlp:"child1"`
