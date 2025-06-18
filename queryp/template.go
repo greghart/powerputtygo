@@ -3,6 +3,7 @@ package queryp
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"text/template"
 )
 
@@ -69,6 +70,11 @@ func (t *Template) Params(params map[string]any) Templater {
 }
 
 // Include marks associations to be included in the template.
+// Nested associations work with a DSV (dot-separated values) syntax, eg. `a.b.c`.
+// Inspired by {https://jsonapi.org/format/#fetching-includes}
+// Intermediate relationships must also be included.
+// Eg. 'a.b.c' results in includes of a->b->c, and following queries would be true:
+// `a.b.c`, `a.b`, , `a`, but NOT `b.c` or `c`.
 // Proxies to templateBuilder under the hood.
 func (t *Template) Include(associations ...string) Templater {
 	return t.Build().Include(associations...)
@@ -119,18 +125,17 @@ func (t *TemplateBuilder) Params(params map[string]any) Templater {
 
 func (t *TemplateBuilder) Include(associations ...string) Templater {
 	for _, assoc := range associations {
-		t.includes[assoc] = true
+		components := strings.Split(assoc, ".")
+		for i := range len(components) {
+			t.includes[strings.Join(components[:i+1], ".")] = true
+		}
 	}
 	return t
 }
 
 func (t *TemplateBuilder) Execute() (string, []any, error) {
-	data := &templateData{
-		params:   t.params,
-		includes: t.includes,
-	}
 	buffer := &bytes.Buffer{}
-	err := t.Template.text.Execute(buffer, data)
+	err := t.Template.text.Execute(buffer, t.data())
 	if err != nil {
 		return "", nil, err
 	}
@@ -140,6 +145,13 @@ func (t *TemplateBuilder) Execute() (string, []any, error) {
 		Params(t.params).
 		Execute()
 	return q, args, nil
+}
+
+func (t *TemplateBuilder) data() *templateData {
+	return &templateData{
+		params:   t.params,
+		includes: t.includes,
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
