@@ -3,8 +3,9 @@ package queryp
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"text/template"
+
+	"github.com/greghart/powerputtygo/servicep"
 )
 
 // Templater describes shared interface of Template and TemplateBuilder.
@@ -90,8 +91,8 @@ func (t *Template) Execute() (string, []any, error) {
 
 type TemplateBuilder struct {
 	*Template
-	params        map[string]any  // Store parameters
-	includes      map[string]bool // Store included associations
+	params        map[string]any       // Store parameters
+	includes      *servicep.Includable // Store included associations
 	placeholderer Placeholderer
 }
 
@@ -99,7 +100,7 @@ func newTemplateBuilder(t *Template) *TemplateBuilder {
 	return &TemplateBuilder{
 		Template: t,
 		params:   make(map[string]any),
-		includes: make(map[string]bool),
+		includes: servicep.NewIncludable(),
 	}
 }
 
@@ -124,12 +125,7 @@ func (t *TemplateBuilder) Params(params map[string]any) Templater {
 }
 
 func (t *TemplateBuilder) Include(associations ...string) Templater {
-	for _, assoc := range associations {
-		components := strings.Split(assoc, ".")
-		for i := range len(components) {
-			t.includes[strings.Join(components[:i+1], ".")] = true
-		}
-	}
+	t.includes.Include(associations...)
 	return t
 }
 
@@ -159,7 +155,7 @@ func (t *TemplateBuilder) data() *templateData {
 // templateData is the data object a template will be executed against.
 type templateData struct {
 	params   map[string]any
-	includes map[string]bool
+	includes *servicep.Includable
 }
 
 func (t *templateData) Param(key string) string {
@@ -177,16 +173,10 @@ func (t *templateData) HasParams() bool {
 	return len(t.params) > 0
 }
 
-func (t *templateData) Includes(keys ...string) bool {
-	for _, key := range keys {
-		_, ok := t.includes[key]
-		if ok {
-			return true
-		}
-	}
-	return false
+func (t *templateData) Includes(key string) bool {
+	return t.includes.IsIncluded(key)
 }
 
-func (t *templateData) Include(keys ...string) bool {
-	return t.Includes(keys...)
+func (t *templateData) Include(key string) bool {
+	return t.Includes(key)
 }

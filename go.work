@@ -4,6 +4,8 @@ use .
 
 use ./sqlp
 
+use ./servicep
+
 use ./errcmp
 
 use ./queryp
