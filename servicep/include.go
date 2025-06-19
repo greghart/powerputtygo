@@ -5,22 +5,18 @@ import (
 	"strings"
 )
 
-// Includable lets you define which inclusions are allowed, and which of those are included.
-type Includable struct {
+// IncludeSchema lets you define your inclusion schema, and handle individaul include requests.
+type IncludeSchema struct {
 	allowed map[string]bool
-	// map of included association, to bool whether it's the full path specified by user
-	includes map[string]bool
 }
 
-func NewIncludable() *Includable {
-	return &Includable{
-		includes: make(map[string]bool),
-	}
+func NewIncludeSchema() *IncludeSchema {
+	return &IncludeSchema{}
 }
 
 // Allow sets associations that are allowed to be included.
 // Only enforced at add time, doesn't retroactively remove anything
-func (i *Includable) Allow(allows ...string) *Includable {
+func (i *IncludeSchema) Allow(allows ...string) *IncludeSchema {
 	if i.allowed == nil && len(allows) > 0 {
 		i.allowed = make(map[string]bool, len(allows))
 	}
@@ -33,32 +29,67 @@ func (i *Includable) Allow(allows ...string) *Includable {
 	return i
 }
 
-func (i *Includable) IsAllowed(s string) bool {
-	if i.allowed == nil {
+func (i *IncludeSchema) IsAllowed(s string) bool {
+	if i == nil || i.allowed == nil {
 		return true // no restrictions, all inclusions are allowed
 	}
 	_, ok := i.allowed[s]
 	return ok
 }
 
-func (i *Includable) Include(associations ...string) *Includable {
+// Include returns a new include request against this schema.
+func (i *IncludeSchema) Include(associations ...string) *IncludeRequest {
+	return NewIncludeRequest().SetSchema(i).Include(associations...)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+type IncludeRequest struct {
+	// schema to use, if any
+	schema *IncludeSchema
+	// map of included association, to bool whether it's the full path specified by user
+	includes map[string]bool
+}
+
+// NewIncludeRequest sets up a new wrapper around request level includes.
+func NewIncludeRequest() *IncludeRequest {
+	return &IncludeRequest{
+		includes: make(map[string]bool),
+	}
+}
+
+func (req *IncludeRequest) SetSchema(schema *IncludeSchema) *IncludeRequest {
+	if req == nil {
+		req = NewIncludeRequest()
+	}
+	req.schema = schema
+	return req
+}
+
+func (req *IncludeRequest) Include(associations ...string) *IncludeRequest {
+	if req == nil {
+		req = NewIncludeRequest()
+	}
 	for _, assoc := range associations {
 		components := strings.Split(assoc, ".")
 		for j := range len(components) {
 			path := strings.Join(components[:j+1], ".")
-			if !i.IsAllowed(path) {
+			if !req.schema.IsAllowed(path) {
 				continue
 			}
-			i.includes[path] = j == len(components)-1
+			req.includes[path] = j == len(components)-1
 		}
 	}
-	return i
+	return req
 }
 
 // All returns an iterator over all user set includes
-func (i *Includable) All() iter.Seq[string] {
+func (req *IncludeRequest) All() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		for i, v := range i.includes {
+		if req == nil {
+			return
+		}
+		for i, v := range req.includes {
 			if !v { // only yield full paths
 				continue
 			}
@@ -69,7 +100,10 @@ func (i *Includable) All() iter.Seq[string] {
 	}
 }
 
-func (i *Includable) IsIncluded(association string) bool {
-	_, ok := i.includes[association]
+func (req *IncludeRequest) IsIncluded(association string) bool {
+	if req == nil {
+		return false
+	}
+	_, ok := req.includes[association]
 	return ok
 }

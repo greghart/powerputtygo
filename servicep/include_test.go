@@ -48,8 +48,10 @@ func TestIncludable(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			i := NewIncludable()
-			i.Allow(test.allows...)
+			i := NewIncludeRequest()
+			if len(test.allows) > 0 {
+				i.SetSchema(NewIncludeSchema().Allow(test.allows...))
+			}
 			i.Include(test.includes...)
 
 			for _, exp := range test.expectations {

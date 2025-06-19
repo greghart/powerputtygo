@@ -91,8 +91,8 @@ func (t *Template) Execute() (string, []any, error) {
 
 type TemplateBuilder struct {
 	*Template
-	params        map[string]any       // Store parameters
-	includes      *servicep.Includable // Store included associations
+	params        map[string]any           // Store parameters
+	includes      *servicep.IncludeRequest // Store included associations
 	placeholderer Placeholderer
 }
 
@@ -100,7 +100,7 @@ func newTemplateBuilder(t *Template) *TemplateBuilder {
 	return &TemplateBuilder{
 		Template: t,
 		params:   make(map[string]any),
-		includes: servicep.NewIncludable(),
+		includes: servicep.NewIncludeRequest(),
 	}
 }
 
@@ -155,7 +155,7 @@ func (t *TemplateBuilder) data() *templateData {
 // templateData is the data object a template will be executed against.
 type templateData struct {
 	params   map[string]any
-	includes *servicep.Includable
+	includes *servicep.IncludeRequest
 }
 
 func (t *templateData) Param(key string) string {
