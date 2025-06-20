@@ -100,6 +100,18 @@ func (req *IncludeRequest) All() iter.Seq[string] {
 	}
 }
 
+func (req *IncludeRequest) Filter(f func(s string) bool) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for v := range req.All() {
+			if f(v) {
+				if !yield(v) {
+					return // stop iteration if yield returns false
+				}
+			}
+		}
+	}
+}
+
 func (req *IncludeRequest) IsIncluded(association string) bool {
 	if req == nil {
 		return false

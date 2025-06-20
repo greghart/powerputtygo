@@ -21,10 +21,20 @@ As a contrived case, let's say you are wanting to join a person to their pets. T
 back rows with both person data and pet data. If a person has more than one pet, their data will
 span more than one row, eg:
 
-```
+```sql
+SELECT 
+	person.id AS person_name,
+	person.name AS person_name,
+	pet.id AS pet_id,
+	pet.name AS pet_name
+FROM
+	people person
+	LEFT JOIN pets pet ON pet.person_id = person.id;
+/* Returns
 | person_id | person_name | pet_id | pet_name |
-| 1         | Albert      | 1      | Kitty    |
+| 1         | Albert      | 1     | Kitty    |
 | 1         | Albert      | 2      | Doggy    |
+*/
 ```
 
 See [here](../sqlp/example_one_to_many_test.go) for an example of how to do this manually.
@@ -45,24 +55,20 @@ maintain. That's where `mapperp` comes in.
 * Various functions to help you compose your mapper: expected row counts, associations, etc.
 
 ```go
-	cragMapper := mapRow(
-		singleMapper(
-			func(row *cragRow) *models.Crag { return &row.Crag },
+	personMapper := mapperp.One( // First off, we want just one person
+		func(row *personRow) *person { return &row.person },
+		mapperp.InnerSlice( // With many pets
+			func(p *person) *[]pet { return &p.Pets },
+			func(e *pet) int64 { return e.ID },
+			func(row *personRow) *pet { return &row.pet },
 		),
-		manyMapper(
-			func(e *models.Crag) *[]models.Area { return &e.Areas },
-			func(row *cragRow) *models.Area { return &row.Area },
-			func(e *models.Area) int64 { return e.ID },
-		),
-		manyMapper(
-			func(e *models.Crag) *[]models.Boulder {
-				if len(e.Areas) == 0 {
-					return nil // no areas, no boulders
-				}
-				return &e.Areas[len(e.Areas)-1].Boulders // get boulders from the latest area
-			},
-			func(row *cragRow) *models.Boulder { return &row.Boulder },
-			func(e *models.Boulder) int64 { return e.ID },
+		// Functionally the same
+		mapperp.Inner(
+			func(p *person) *[]pet { return &p.Pets },
+			mapperp.Slice(
+				func(e *pet) int64 { return e.ID },
+				func(row *personRow) *pet { return &row.Pet },
+			),
 		),
 	)
 ```

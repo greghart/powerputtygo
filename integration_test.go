@@ -28,11 +28,11 @@ func TestIntegration_DB(t *testing.T) {
 		`
 		SELECT 
 			p.id, p.name, p.created_at, p.updated_at
-			{{- if .Include "child" "grandchild"}},
+			{{- if .Include "child"}},
 				COALESCE(child.id, 0) AS child_id,
 				COALESCE(child.name, "") AS child_name
 			{{- end}}
-			{{- if .Include "grandchild"}},
+			{{- if .Include "child.child"}},
 				COALESCE(grandchild.id, 0) AS child_child_id,
 				COALESCE(grandchild.name, "") AS child_child_name
 			{{- end}}
@@ -45,17 +45,17 @@ func TestIntegration_DB(t *testing.T) {
 					COALESCE(child_pet.name, "") AS child_pet_name,
 					child_pet.type AS child_pet_type
 				{{- end}}
-				{{- if .Include "grandchild"}},
+				{{- if .Include "child.child"}},
 					COALESCE(grandchild_pet.id, 0) AS grandchild_pet_id,
 					COALESCE(grandchild_pet.name, "") AS grandchild_pet_name,
 					grandchild_pet.type AS grandchild_pet_type
 				{{- end}}
 			{{- end}}
 		FROM people p
-		{{if .Include "child" "grandchild" -}}
+		{{if .Include "child" -}}
 			LEFT JOIN people child ON p.id = child.parent_id
 		{{- end}}
-		{{if .Include "grandchild" -}}
+		{{if .Include "child.child" -}}
 			LEFT JOIN people grandchild ON child.id = grandchild.parent_id
 		{{- end}}
 		{{if .Include "pet" -}}
@@ -63,7 +63,7 @@ func TestIntegration_DB(t *testing.T) {
 			{{if .Include "child" -}}
 				LEFT JOIN pets child_pet ON child.id = child_pet.parent_id
 			{{- end}}
-			{{if .Include "grandchild" -}}
+			{{if .Include "child.child" -}}
 				LEFT JOIN pets grandchild_pet ON grandchild.id = grandchild_pet.parent_id
 			{{- end}}
 		{{- end}}
@@ -114,7 +114,7 @@ func TestIntegration_DB(t *testing.T) {
 	)
 
 	q, args, err := queryTemplate.
-		Include("pet", "child", "grandchild").
+		Include("pet", "child.child").
 		Execute()
 	if err != nil {
 		t.Fatalf("failed to apply query template: %v", err)

@@ -13,7 +13,7 @@ type person struct {
 	ID        int64  `sqlp:"id"`
 	FirstName string `sqlp:"first_name"`
 	LastName  string `sqlp:"last_name"`
-	Pets      []pet
+	Pets      []pet  `sqlp:"pet,hasMany"`
 	timestamps
 }
 
