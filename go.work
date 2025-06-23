@@ -4,6 +4,8 @@ use .
 
 use ./sqlp
 
+use ./clientp
+
 use ./servicep
 
 use ./errcmp

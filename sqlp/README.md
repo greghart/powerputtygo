@@ -15,8 +15,6 @@ the database directly -- query building helpers can be found in [queryp](../quer
 * `Repository` pattern support, to provide a wrapper around specific entities.
 * Generic struct mapping scanning support to avoid sql tags for performance.
 
-## Examples
-
 ### Single Path -- Exec, Query, QueryRow
 
 Forgo having the separate contextless method, and keep your team from accidentally writing 
