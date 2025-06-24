@@ -2,6 +2,7 @@ package queryp
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -102,7 +103,12 @@ func (n *NamedQuery) build() {
 			for k, v := range n.params {
 				if strings.HasPrefix(n.query[i:], fmt.Sprintf(":%s", k)) {
 					match = true
-					q.WriteString(n.builtArgs.Add(v))
+					// Support slice values and automagically convert them to IN style parameter
+					if reflect.TypeOf(v).Kind() == reflect.Slice {
+						q.WriteString(n.builtArgs.Slice(n.slice(v)))
+					} else {
+						q.WriteString(n.builtArgs.Add(v))
+					}
 					i += len(k) // skip over the ":key" part
 					break
 				}
@@ -113,4 +119,16 @@ func (n *NamedQuery) build() {
 		}
 	}
 	n.builtQuery = q.String()
+}
+
+func (n *NamedQuery) slice(s any) []any {
+	sv := reflect.ValueOf(s)
+	if sv.Kind() != reflect.Slice {
+		return nil
+	}
+	result := make([]any, sv.Len())
+	for i := 0; i < sv.Len(); i++ {
+		result[i] = sv.Index(i).Interface()
+	}
+	return result
 }

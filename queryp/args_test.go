@@ -22,6 +22,18 @@ func TestArgs(t *testing.T) {
 	}
 }
 
+func TestArgs_slice(t *testing.T) {
+	args := NewArgs()
+	names := args.Slice([]any{"Alice", "Bob", "Charlie"})
+	if names != "?,?,?" {
+		t.Errorf("name given placeholder %s, wanted '?,?,?'", names)
+	}
+	expected := []any{"Alice", "Bob", "Charlie"}
+	if !cmp.Equal(args.Args(), expected) {
+		t.Errorf("given args did not match expected\n%v", cmp.Diff(expected, args.Args()))
+	}
+}
+
 func TestArgs_pg(t *testing.T) {
 	args := NewArgs().WithPlaceholderer(PostgresPlaceholderer)
 	name := args.Add("Alice")

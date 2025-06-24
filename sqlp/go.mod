@@ -3,6 +3,8 @@ module github.com/greghart/powerputtygo/sqlp
 go 1.24.1
 
 require (
+	github.com/greghart/powerputtygo/queryp v0.0.0-00010101000000-000000000000
+	// test only dependencies below here
 	github.com/google/go-cmp v0.7.0
 	github.com/greghart/powerputtygo/errcmp v0.0.0-00010101000000-000000000000
 	github.com/lib/pq v1.10.9
@@ -10,3 +12,4 @@ require (
 )
 
 replace github.com/greghart/powerputtygo/errcmp => ../errcmp
+replace github.com/greghart/powerputtygo/queryp => ../queryp

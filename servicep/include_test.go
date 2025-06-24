@@ -1,6 +1,11 @@
 package servicep
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+)
 
 func TestIncludable(t *testing.T) {
 	type expectation struct {
@@ -57,9 +62,50 @@ func TestIncludable(t *testing.T) {
 			for _, exp := range test.expectations {
 				val := i.IsIncluded(exp.q)
 				if val != exp.r {
-					t.Errorf("Include(%q) got %v wanted %v", exp.q, val, exp.r)
+					t.Errorf("Include(%q) got %v expecteded %v", exp.q, val, exp.r)
 				}
 			}
 		})
 	}
 }
+
+func TestIncludeRequest_All(t *testing.T) {
+	req := NewIncludeRequest().Include("a.b.c", "d")
+	var got []string
+	for s := range req.All() {
+		got = append(got, s)
+	}
+	expected := []string{"a.b.c", "d"}
+	if !cmp.Equal(got, expected, ignoreSort) {
+		t.Errorf("All() returned %v, expected %v", got, expected)
+	}
+}
+
+func TestIncludeRequest_Filter(t *testing.T) {
+	req := NewIncludeRequest().Include("a.b.c", "d", "foo.bar")
+	var got []string
+	f := func(s string) bool { return len(s) > 3 }
+	for s := range req.Filter(f) {
+		got = append(got, s)
+	}
+	expected := []string{"a.b.c", "foo.bar"}
+	if !cmp.Equal(got, expected, ignoreSort) {
+		t.Errorf("Filter() = %v, expected %v", got, expected)
+	}
+}
+
+func TestIncludeRequest_Subcludes(t *testing.T) {
+	req := NewIncludeRequest().Include("a.b.c", "a.b.d.e", "a.x", "b.c")
+	var got []string
+	for s := range req.Subcludes("a.b") {
+		got = append(got, s)
+	}
+	expected := []string{"c", "d.e"}
+	if !cmp.Equal(got, expected, ignoreSort) {
+		t.Errorf("got %v, expected %v", got, expected)
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+var ignoreSort = cmpopts.SortSlices(func(a, b string) bool { return a < b })

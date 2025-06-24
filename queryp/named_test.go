@@ -22,6 +22,11 @@ func TestNamed(t *testing.T) {
 			"SELECT * FROM test WHERE id = ?",
 			[]any{1},
 		},
+		"replaces named placeholder slices": {
+			Named("SELECT * FROM test WHERE id IN (:id)").Param("id", []int{1, 2, 3}),
+			"SELECT * FROM test WHERE id IN (?,?,?)",
+			[]any{1, 2, 3},
+		},
 		"replaces multiple named placeholders": {
 			Named("SELECT * FROM test WHERE id = :id AND name = :name").Params(map[string]any{
 				"id":   1,

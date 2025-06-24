@@ -165,7 +165,7 @@ func Insert[E any](ctx context.Context, db *DB, table string, e E) (sql.Result, 
 	placeholders := make([]string, 0, len(fields.ByColumnName))
 	args := queryp.NewArgs()
 	for col, field := range fields.Writable() {
-		columns = append(columns, col)
+		columns = append(columns, fmt.Sprintf("\"%s\"", col))
 		colValue, err := val.FieldByIndexErr(field.Index)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get field %s from %T: %w", col, e, err)

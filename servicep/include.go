@@ -42,6 +42,23 @@ func (i *IncludeSchema) Include(associations ...string) *IncludeRequest {
 	return NewIncludeRequest().SetSchema(i).Include(associations...)
 }
 
+// All returns an iterator over all user set includes
+func (i *IncludeSchema) All() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		if i == nil {
+			return
+		}
+		for i, v := range i.allowed {
+			if !v { // only yield full paths
+				continue
+			}
+			if !yield(i) {
+				return // stop iteration if yield returns false
+			}
+		}
+	}
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 type IncludeRequest struct {
@@ -100,6 +117,25 @@ func (req *IncludeRequest) All() iter.Seq[string] {
 	}
 }
 
+// Subcludes returns an iterator over all sub-includes that start with the given prefix.
+// `prefix` will be cut as well, to make it nice to pass to some other consumer.
+// For example, "a.b.c" with prefix "a.b" will yield "c".
+func (req *IncludeRequest) Subcludes(prefix string) iter.Seq[string] {
+	if !strings.HasSuffix(prefix, ".") { // "a.b" -> "a.b."
+		prefix += "."
+	}
+	return func(yield func(string) bool) {
+		for v := range req.All() {
+			cut, ok := strings.CutPrefix(v, prefix)
+			if ok {
+				if !yield(cut) {
+					return // stop iteration if yield returns false
+				}
+			}
+		}
+	}
+
+}
 func (req *IncludeRequest) Filter(f func(s string) bool) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for v := range req.All() {

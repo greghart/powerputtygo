@@ -1,6 +1,9 @@
 package queryp
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Args are a way to build placeholder arguments for queries in a composable way.
 // This is a very simple paradigm that's not particularly useful by itself, but used with the
@@ -29,6 +32,16 @@ func (a *Args) WithPlaceholderer(p Placeholderer) *Args {
 func (a *Args) Add(arg any) string {
 	a.args = append(a.args, arg)
 	return a.placeholderer(len(a.args) - 1)
+}
+
+// Slice supports IN style parameters, expanding them out to CSVs
+// Eg. Slice([]int{1, 2, 3}) will return "?,?,?" and add the values 1, 2, 3 to the args slice.
+func (a *Args) Slice(s []any) string {
+	placeholders := make([]string, len(s))
+	for i, v := range s {
+		placeholders[i] = a.Add(v)
+	}
+	return strings.Join(placeholders, ",")
 }
 
 func (a *Args) Args() []any {

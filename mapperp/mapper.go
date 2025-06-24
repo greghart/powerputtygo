@@ -2,17 +2,17 @@ package mapperp
 
 // Mapper maps rows onto an Out entity.
 // They are fully composable to map a deeply nested structure easily.
-type Mapper[Row any, Out any] func(out *Out, row *Row, i int)         // A row mapper maps rows onto an output entity
-type Identifier[E any, ID comparable] func(e *E) ID                   // identify entities by their ID
-type DataGetter[In any, Out any] func(row *In) *Out                   // get data from a row
-type MapperDeferred[Row any, Out any] func(out *Out, row *Row, i int) // A row mapper maps rows onto an output entity
+type Mapper[Row any, Out any] func(out *Out, row *Row)         // A row mapper maps rows onto an output entity
+type Identifier[E any, ID comparable] func(e *E) ID            // identify entities by their ID
+type DataGetter[In any, Out any] func(row *In) *Out            // get data from a row
+type MapperDeferred[Row any, Out any] func(out *Out, row *Row) // A row mapper maps rows onto an output entity
 
 // One maps multiple rows to a single output.
 func One[Row any, Out any](getData DataGetter[Row, Out], rest ...Mapper[Row, Out]) Mapper[Row, Out] {
 	once := false
 	return All(
 		append(
-			[]Mapper[Row, Out]{func(out *Out, row *Row, i int) {
+			[]Mapper[Row, Out]{func(out *Out, row *Row) {
 				if once {
 					return
 				}
@@ -37,7 +37,7 @@ func Slice[Row any, Out any](
 	byID := make(map[int64]bool)
 	return All(
 		append(
-			[]Mapper[Row, []Out]{func(out *[]Out, row *Row, i int) {
+			[]Mapper[Row, []Out]{func(out *[]Out, row *Row) {
 				// datum check
 				datum := getData(row)
 				if datum == nil {
@@ -65,11 +65,11 @@ func Slice[Row any, Out any](
 }
 
 // Inner sets up a sub mapper into our current output.
-func Inner[Row any, Out any, In any](
-	getInner func(e *Out) *In,
-	inner ...Mapper[Row, In],
+func Inner[Row any, Out any, Inner any](
+	getInner func(e *Out) *Inner,
+	inner ...Mapper[Row, Inner],
 ) Mapper[Row, Out] {
-	return func(out *Out, row *Row, i int) {
+	return func(out *Out, row *Row) {
 		if out == nil {
 			return
 		}
@@ -79,7 +79,7 @@ func Inner[Row any, Out any, In any](
 		}
 		All(
 			inner...,
-		)(sub, row, i)
+		)(sub, row)
 	}
 }
 
@@ -97,14 +97,14 @@ func InnerSlice[Row any, Out any, In any](
 func Take[Row any, Out any](
 	inner ...Mapper[Row, Out],
 ) Mapper[Row, []Out] {
-	return func(out *[]Out, row *Row, i int) {
+	return func(out *[]Out, row *Row) {
 		if out == nil || len(*out) == 0 {
 			return
 		}
 		last := &(*out)[len(*out)-1] // get the last element
 		All(
 			inner...,
-		)(last, row, i)
+		)(last, row)
 	}
 }
 
@@ -112,9 +112,9 @@ func Take[Row any, Out any](
 func All[Row any, Out any](
 	mappers ...Mapper[Row, Out],
 ) Mapper[Row, Out] {
-	return func(out *Out, row *Row, i int) {
+	return func(out *Out, row *Row) {
 		for _, mapper := range mappers {
-			mapper(out, row, i)
+			mapper(out, row)
 		}
 	}
 }

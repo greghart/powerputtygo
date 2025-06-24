@@ -131,7 +131,7 @@ func TestIntegration_DB(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to scan row: %v", err)
 		}
-		mapper(&out, &row, i)
+		mapper(&out, &row)
 	}
 
 	js, _ := json.MarshalIndent(out, "", "  ")

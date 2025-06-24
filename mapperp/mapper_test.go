@@ -32,8 +32,8 @@ func TestMapper_One(t *testing.T) {
 			})
 
 			var result person
-			for i, r := range test.rows {
-				rowMapper(&result, &r, i)
+			for _, r := range test.rows {
+				rowMapper(&result, &r)
 			}
 
 			if !cmp.Equal(result, test.expected) {
@@ -91,8 +91,8 @@ func TestMapper_Slice(t *testing.T) {
 			)
 
 			var result []person
-			for i, r := range test.rows {
-				rowMapper(&result, &r, i)
+			for _, r := range test.rows {
+				rowMapper(&result, &r)
 			}
 
 			if !cmp.Equal(result, test.expected) {
@@ -160,8 +160,8 @@ func TestMapper_All(t *testing.T) {
 			)
 
 			var result []person
-			for i, r := range test.rows {
-				rowMapper(&result, &r, i)
+			for _, r := range test.rows {
+				rowMapper(&result, &r)
 			}
 
 			if !cmp.Equal(result, test.expected) {

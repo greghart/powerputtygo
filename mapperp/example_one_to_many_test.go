@@ -54,7 +54,7 @@ func Example_mapOneToMany() {
 		if err != nil {
 			log.Panicf("failed to scan row: %v", err)
 		}
-		personMapper(&person, &row, i) // Map the row onto our person
+		personMapper(&person, &row) // Map the row onto our person
 	}
 	log.Printf("scanned person: %+v", person)
 }
