@@ -17,4 +17,9 @@ I'm also just using it as a central place to keep my learnings and knowledge in 
   * [sqlp](./sqlp/README.md) SQL extensions
   * [queryp](./queryp/README.md) Helpers to write SQL queries more cleanly
   * [mapperp](./mapperp/README.md) Map flat rows of data into domain models, "orm lite"
-* `errcmp` -- error matcher for tests ([source](https://github.com/google/exposure-notifications-server/blob/main/pkg/errcmp/errcmp.go))
+* [servicep](./servicep/README.md) Web service utilities to help your REST / gRPC / other APIs.
+* [clientp](./clientp/README.md) Convenient helpers for consuming (ie. being a client)
+* [utilp](./utilp/README.md) More general utilities, eg. basic generic map function
+* `errcmp` error matcher for tests 
+  * ([source](https://github.com/google/exposure-notifications-server/blob/main/pkg/errcmp/errcmp.go))
+  * slight addition for `extra` context
