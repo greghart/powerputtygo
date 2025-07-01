@@ -2,6 +2,7 @@ package servicep
 
 import (
 	"iter"
+	"slices"
 	"strings"
 )
 
@@ -40,6 +41,16 @@ func (i *IncludeSchema) IsAllowed(s string) bool {
 // Include returns a new include request against this schema.
 func (i *IncludeSchema) Include(associations ...string) *IncludeRequest {
 	return NewIncludeRequest().SetSchema(i).Include(associations...)
+}
+
+// IncludeSeq returns a new include request against this schema.
+func (i *IncludeSchema) IncludeSeq(associations iter.Seq[string]) *IncludeRequest {
+	return i.Include(slices.Collect(associations)...)
+}
+
+// FromRequest returns a new include request based on this schema and from given request.
+func (i *IncludeSchema) FromRequest(r *IncludeRequest) *IncludeRequest {
+	return NewIncludeRequest().SetSchema(i).Include(slices.Collect(r.All())...)
 }
 
 // All returns an iterator over all user set includes
@@ -100,6 +111,11 @@ func (req *IncludeRequest) Include(associations ...string) *IncludeRequest {
 	return req
 }
 
+// IncludeSeq returns a new include request against this schema.
+func (req *IncludeRequest) IncludeSeq(associations iter.Seq[string]) *IncludeRequest {
+	return req.Include(slices.Collect(associations)...)
+}
+
 // All returns an iterator over all user set includes
 func (req *IncludeRequest) All() iter.Seq[string] {
 	return func(yield func(string) bool) {
@@ -134,8 +150,8 @@ func (req *IncludeRequest) Subcludes(prefix string) iter.Seq[string] {
 			}
 		}
 	}
-
 }
+
 func (req *IncludeRequest) Filter(f func(s string) bool) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for v := range req.All() {
