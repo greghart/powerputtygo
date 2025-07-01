@@ -65,7 +65,7 @@ func (r *Repository[E]) Get(ctx context.Context, q string, args ...any) (*E, err
 	return entity, err
 }
 
-// Select functions very similarly to `sqlp.Select`, but obeys uses custom mapper, if any.
+// Select functions very similarly to `sqlp.Select`, but uses custom mapper, if any.
 func (r *Repository[E]) Select(ctx context.Context, q string, args ...any) ([]E, error) {
 	rows, err := Query[E](ctx, r.DB, q, args...)
 	if err != nil {

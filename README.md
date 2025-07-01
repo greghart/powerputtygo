@@ -23,3 +23,18 @@ I'm also just using it as a central place to keep my learnings and knowledge in 
 * `errcmp` error matcher for tests 
   * ([source](https://github.com/google/exposure-notifications-server/blob/main/pkg/errcmp/errcmp.go))
   * slight addition for `extra` context
+
+## Observability
+
+### Logging
+
+When applicable, all packages take in a `slog.Logger` instance to customize logging. By default,
+only logs to `slog.LevelDebug`.
+
+### Metrics
+
+When applicable, powerputty packages will take  `Metric` interfaces that align with prometheus
+metric types.
+
+* `MetricCounter` -- corresponds to `prometheus.NewCounter`
+* `MetricHistogram` -- corresponds to `prometheus.NewHistogram`

@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/greghart/powerputtygo/queryp"
 	"github.com/greghart/powerputtygo/sqlp/internal/reflectp"
@@ -14,20 +16,39 @@ import (
 // DB extends the stdlib sql.DB type to add additional behavior.
 type DB struct {
 	*sql.DB
+	logger  *slog.Logger
+	metrics DBMetrics
+}
+
+type DBOptions struct {
+	Logger  *slog.Logger
+	Metrics DBMetrics
 }
 
 // NewDB builds a new sqlp.DB for when you already have an existing sql.DB.
-func NewDB(db *sql.DB) *DB {
-	return &DB{db}
+func NewDB(db *sql.DB, _options ...DBOptions) *DB {
+	opts := DBOptions{}
+	if len(_options) == 1 {
+		opts = _options[0]
+	}
+	logger := slog.Default()
+	if opts.Logger != nil {
+		logger = _options[0].Logger.WithGroup("sqlp")
+	}
+	return &DB{
+		DB:      db,
+		logger:  logger,
+		metrics: opts.Metrics,
+	}
 }
 
-func Open(driverName, dataSourceName string) (*DB, error) {
+func Open(driverName, dataSourceName string, _options ...DBOptions) (*DB, error) {
 	db, err := sql.Open(driverName, dataSourceName)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewDB(db), nil
+	return NewDB(db, _options...), nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -35,16 +56,28 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 
 // Exec runs ExecContext.
 func (db *DB) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	db.logger.Debug("Exec", "query", slog.StringValue(query), "args", &args)
+	db.metrics.QueryCounter.Inc()
+	defer db.metrics.ObserveDuration()()
+
 	return db.queryer(ctx).ExecContext(ctx, query, args...)
 }
 
 // Query runs QueryContext.
 func (db *DB) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	db.logger.Debug("Query", "query", slog.StringValue(query), "args", &args)
+	db.metrics.QueryCounter.Inc()
+	defer db.metrics.ObserveDuration()()
+
 	return db.queryer(ctx).QueryContext(ctx, query, args...)
 }
 
 // QueryRow runs QueryRowContext.
 func (db *DB) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	db.logger.Debug("QueryRow", "query", slog.StringValue(query), "args", &args)
+	db.metrics.QueryCounter.Inc()
+	defer db.metrics.ObserveDuration()()
+
 	return db.queryer(ctx).QueryRowContext(ctx, query, args...)
 }
 
@@ -225,4 +258,41 @@ func Update[E Identifiable](ctx context.Context, db *DB, table string, e E) (sql
 type Identifiable interface {
 	ID() any          // ID returns the unique identifier for the entity.
 	IDColumn() string // IDColumn returns the name of the column that contains the ID.
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+type DBMetrics struct {
+	QueryCounter MetricCounter
+	// QueryDurationObserver is used to observe the duration of queries (db time)
+	QueryDurationObserver MetricObserver
+}
+
+// MetricCounter is used for query counting.
+// Copied from prometheus to avoid dependency here.
+type MetricCounter interface {
+	Inc()
+}
+
+// MetricObserver is used for query duration observation.
+// Copied from prometheus to avoid dependency here.
+type MetricObserver interface {
+	Observe(float64)
+}
+
+func (m *DBMetrics) IncQuery() {
+	if m == nil || m.QueryCounter == nil {
+		return
+	}
+	m.QueryCounter.Inc()
+}
+
+func (m *DBMetrics) ObserveDuration() func() {
+	if m == nil || m.QueryDurationObserver == nil {
+		return func() {}
+	}
+	start := time.Now()
+	return func() {
+		m.QueryDurationObserver.Observe(time.Since(start).Seconds())
+	}
 }
