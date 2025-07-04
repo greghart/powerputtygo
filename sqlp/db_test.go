@@ -16,8 +16,7 @@ import (
 )
 
 func TestDB_Exec(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	res, err := db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe")
 	if err != nil {
@@ -33,8 +32,7 @@ func TestDB_Exec(t *testing.T) {
 }
 
 func TestDB_Query(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe") // nolint:errcheck
 
 	rows, err := db.Query(ctx, "SELECT id, first_name, last_name FROM people WHERE first_name = ?", "John")
@@ -54,8 +52,7 @@ func TestDB_Query(t *testing.T) {
 }
 
 func TestDB_QueryRow(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 	db.Exec(ctx, "INSERT INTO people (first_name, last_name) VALUES (?, ?)", "John", "Doe") // nolint:errcheck
 
 	row := db.QueryRow(ctx, "SELECT id, first_name, last_name FROM people WHERE first_name = ?", "John")
@@ -66,8 +63,7 @@ func TestDB_QueryRow(t *testing.T) {
 }
 
 func TestSelect(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	grandparent := grandchildrenSetup(ctx, db)
 	// Another one to show off multiple rows
@@ -169,8 +165,7 @@ func TestSelect(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	grandparent := grandchildrenSetup(ctx, db)
 
@@ -214,8 +209,7 @@ func TestGet(t *testing.T) {
 }
 
 func TestDB_RunInTx(t *testing.T) {
-	db, ctx, cleanup := testPG(t)
-	defer cleanup()
+	db, ctx := testPG(t)
 
 	t.Run("transacts operations as expected", func(t *testing.T) {
 		id := 1
@@ -290,18 +284,20 @@ func TestDB_RunInTx(t *testing.T) {
 // doing something horrible, and can check allocs (eg. custom mapping is almost as good as vanilla,
 // both of which are twice as good as others)
 func BenchmarkDB_Scanning(b *testing.B) {
-	db, _, cleanup := testDB(b)
+	db, _ := testDB(b)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	defer cleanup()
 
-	grandparent := grandchildrenSetup(ctx, db)
-	query := selectGrandchildrenAndPets("p.id = ?")
+	// Setup 100 entities to ensure amortized cost per "rows" is measured
+	for range 100 {
+		grandchildrenSetup(ctx, db)
+	}
+	query := selectGrandchildrenAndPets()
 	noop := func(x ...interface{}) {}
 
 	b.Run("Select (generic dest, reflect mapping)", func(b *testing.B) {
 		for b.Loop() {
-			people, err := Select[person](ctx, db, query, grandparent.ID)
+			people, err := Select[person](ctx, db, query)
 			if err != nil {
 				b.Fatalf("failed to get: %v", err)
 			}
@@ -310,9 +306,10 @@ func BenchmarkDB_Scanning(b *testing.B) {
 	})
 
 	repo := NewRepository[person](db, "people")
+	repo.Validate() // nolint:errcheck
 	b.Run("Repository (generic dest, reflective mapping)", func(b *testing.B) {
 		for b.Loop() {
-			people, err := repo.Select(ctx, query, grandparent.ID)
+			people, err := repo.Select(ctx, query)
 			if err != nil {
 				b.Fatalf("failed to get: %v", err)
 			}
@@ -320,16 +317,15 @@ func BenchmarkDB_Scanning(b *testing.B) {
 		}
 	})
 
-	pm := personMapper(b)
 	b.Run("MappingScanner (generic dest, generic mapping)", func(b *testing.B) {
 		for b.Loop() {
-			rows, err := db.Query(ctx, query, grandparent.ID)
+			rows, err := db.Query(ctx, query)
 			if err != nil {
 				b.Fatalf("failed to query: %v", err)
 			}
 			defer rows.Close()
 
-			scanner := NewMappingScanner(rows, pm)
+			scanner := NewMappingScanner(rows, personMapper)
 			if err != nil {
 				b.Fatalf("failed to create scanner: %v", err)
 			}
@@ -350,7 +346,7 @@ func BenchmarkDB_Scanning(b *testing.B) {
 
 	b.Run("Vanilla scanner (manual dest, manual mapping)", func(b *testing.B) {
 		for b.Loop() {
-			rows, err := db.Query(ctx, query, grandparent.ID)
+			rows, err := db.Query(ctx, query)
 			if err != nil {
 				b.Fatalf("failed to query: %v", err)
 			}
@@ -493,7 +489,7 @@ func selectGrandchildrenAndPets(_wheres ...string) string {
 // Verify some tests with Postgres as well
 // More to keep these as nice examples
 // Note sqlite has difference auto increment syntax, so pg tests should manually set ids
-func testPG(t *testing.T) (*DB, context.Context, func()) {
+func testPG(t *testing.T) (*DB, context.Context) {
 	t.Helper()
 
 	db, err := Open("postgres", "host=localhost port=5432 user=postgres password=postgres dbname=sqlp_test sslmode=disable")
@@ -504,7 +500,7 @@ func testPG(t *testing.T) (*DB, context.Context, func()) {
 }
 
 // testDB returns a test database and a cleanup function.
-func testDB(t testing.TB) (*DB, context.Context, func()) {
+func testDB(t testing.TB) (*DB, context.Context) {
 	t.Helper()
 
 	db, err := Open("sqlite3", ":memory:")
@@ -514,7 +510,7 @@ func testDB(t testing.TB) (*DB, context.Context, func()) {
 	return testDBSetup(t, db)
 }
 
-func testDBSetup(t testing.TB, db *DB) (*DB, context.Context, func()) {
+func testDBSetup(t testing.TB, db *DB) (*DB, context.Context) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -548,10 +544,11 @@ func testDBSetup(t testing.TB, db *DB) (*DB, context.Context, func()) {
 	if err != nil {
 		t.Fatalf("testDB failed to create table: %v", err)
 	}
-	return db, ctx, func() {
+	t.Cleanup(func() {
 		db.Close()
 		cancel()
-	}
+	})
+	return db, ctx
 }
 
 func isWithinDuration(t1 time.Time, t2 time.Time, d time.Duration) bool {

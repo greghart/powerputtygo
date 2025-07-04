@@ -9,8 +9,7 @@ import (
 )
 
 func TestRepository_Validate(t *testing.T) {
-	db, _, cleanup := testDB(t)
-	defer cleanup()
+	db, _ := testDB(t)
 
 	type validater interface {
 		Validate() error
@@ -76,8 +75,7 @@ func TestRepository_Validate(t *testing.T) {
 }
 
 func TestRepository_Insert(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	repository := NewRepository[person](db, "people")
 
@@ -102,8 +100,7 @@ func TestRepository_Insert(t *testing.T) {
 }
 
 func TestRepository_Update(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	grandparent := grandchildrenSetup(ctx, db)
 
@@ -134,8 +131,7 @@ func TestRepository_Update(t *testing.T) {
 }
 
 func TestRepository_Get(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	repository := NewRepository[person](db, "people")
 
@@ -165,8 +161,7 @@ func TestRepository_Get(t *testing.T) {
 }
 
 func TestRepository_Select(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	repository := NewRepository[person](db, "people")
 

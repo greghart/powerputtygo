@@ -9,7 +9,6 @@ import (
 )
 
 func TestNewMapper(t *testing.T) {
-	personMapper := personMapper(t)
 	p := person{
 		ID:        1,
 		FirstName: "Joe",
@@ -47,8 +46,7 @@ func TestNewMapper(t *testing.T) {
 
 // //////////////////////////////////////////////////////////////////////////////
 
-func personMapper(t testing.TB) Mapper[person] {
-	t.Helper()
+var personMapper = func() Mapper[person] {
 	petMapper := Mapper[pet]{
 		"id":   func(p *pet) any { return &p.ID },
 		"name": func(p *pet) any { return &p.Name },
@@ -82,4 +80,4 @@ func personMapper(t testing.TB) Mapper[person] {
 		return p.Child
 	})
 	return personMapper
-}
+}()

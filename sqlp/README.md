@@ -142,7 +142,7 @@ person, err := repository.Find(ctx, 1) // SELECT * FROM people WHERE id = 1 LIMI
 
 Reflect is very useful for helping make declarative models, but ultimately may be too slow or 
 fragile for your purposes. Generics allow us to approach similar goals without the performance or
-abstraction overhead. We can use mappers to handle mapping column names to target addresses in our 
+abstraction overhead. We can use "mappers" to handle mapping column names to target addresses in our 
 struct that we want to scan into.
 
 ```go

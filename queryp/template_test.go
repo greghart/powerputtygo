@@ -71,9 +71,9 @@ func TestTemplate(t *testing.T) {
 		},
 		"supports IN parameters": {
 			Must(NewTemplate("SELECT * FROM test WHERE id IN (:id)")).
-				Param("id", 1),
-			"SELECT * FROM test WHERE id = ?",
-			[]any{1},
+				Param("id", []int{1, 2}),
+			"SELECT * FROM test WHERE id IN (?,?)",
+			[]any{1, 2},
 		},
 	}
 	for name, test := range tests {

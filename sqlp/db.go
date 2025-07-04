@@ -57,7 +57,7 @@ func Open(driverName, dataSourceName string, _options ...DBOptions) (*DB, error)
 // Exec runs ExecContext.
 func (db *DB) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	db.logger.Debug("Exec", "query", slog.StringValue(query), "args", &args)
-	db.metrics.QueryCounter.Inc()
+	db.metrics.IncQuery()
 	defer db.metrics.ObserveDuration()()
 
 	return db.queryer(ctx).ExecContext(ctx, query, args...)
@@ -66,7 +66,7 @@ func (db *DB) Exec(ctx context.Context, query string, args ...any) (sql.Result, 
 // Query runs QueryContext.
 func (db *DB) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	db.logger.Debug("Query", "query", slog.StringValue(query), "args", &args)
-	db.metrics.QueryCounter.Inc()
+	db.metrics.IncQuery()
 	defer db.metrics.ObserveDuration()()
 
 	return db.queryer(ctx).QueryContext(ctx, query, args...)
@@ -75,7 +75,7 @@ func (db *DB) Query(ctx context.Context, query string, args ...any) (*sql.Rows, 
 // QueryRow runs QueryRowContext.
 func (db *DB) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
 	db.logger.Debug("QueryRow", "query", slog.StringValue(query), "args", &args)
-	db.metrics.QueryCounter.Inc()
+	db.metrics.IncQuery()
 	defer db.metrics.ObserveDuration()()
 
 	return db.queryer(ctx).QueryRowContext(ctx, query, args...)

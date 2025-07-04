@@ -2,10 +2,9 @@ package mapperp
 
 // Mapper maps rows onto an Out entity.
 // They are fully composable to map a deeply nested structure easily.
-type Mapper[Row any, Out any] func(out *Out, row *Row)         // A row mapper maps rows onto an output entity
-type Identifier[E any, ID comparable] func(e *E) ID            // identify entities by their ID
-type DataGetter[In any, Out any] func(row *In) *Out            // get data from a row
-type MapperDeferred[Row any, Out any] func(out *Out, row *Row) // A row mapper maps rows onto an output entity
+type Mapper[Row any, Out any] func(out *Out, row *Row) // A row mapper maps rows onto an output entity
+type Identifier[E any, ID comparable] func(e *E) ID    // identify entities by their ID
+type DataGetter[In any, Out any] func(row *In) *Out    // get data from a row
 
 // One maps multiple rows to a single output.
 func One[Row any, Out any](getData DataGetter[Row, Out], rest ...Mapper[Row, Out]) Mapper[Row, Out] {

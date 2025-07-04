@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"database/sql"
 	"fmt"
-	"log"
 	"reflect"
 	"slices"
 	"strings"
@@ -207,9 +206,6 @@ func (f *Fields) traverse(cols []string, cb func(f *Field, path []int, b bool), 
 	}
 
 	for i := range cols {
-		if cols[i] == "grandchild_pet_id" {
-			log.Printf("checking grandchild pet")
-		}
 		field, ok := f.ByColumnName[cols[i]]
 		if ok {
 			cb(field, append(path[:], field.Index...), true)

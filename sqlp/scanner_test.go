@@ -8,8 +8,7 @@ import (
 )
 
 func TestReflectDestScanner(t *testing.T) {
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	grandparent := grandchildrenSetup(ctx, db)
 	albert := albertSetup(ctx, db)
@@ -41,10 +40,7 @@ func TestReflectDestScanner(t *testing.T) {
 }
 
 func TestMappingScanner(t *testing.T) {
-	pm := personMapper(t)
-
-	db, ctx, cleanup := testDB(t)
-	defer cleanup()
+	db, ctx := testDB(t)
 
 	grandparent := grandchildrenSetup(ctx, db)
 	albert := albertSetup(ctx, db)
@@ -56,7 +52,7 @@ func TestMappingScanner(t *testing.T) {
 	}
 	defer rows.Close()
 
-	scanner := NewMappingScanner(rows, pm)
+	scanner := NewMappingScanner(rows, personMapper)
 
 	var people []person
 	for rows.Next() {
