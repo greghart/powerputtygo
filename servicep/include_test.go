@@ -1,13 +1,14 @@
 package servicep
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-func TestIncludable(t *testing.T) {
+func TestInclude(t *testing.T) {
 	type expectation struct {
 		q string
 		r bool
@@ -75,6 +76,15 @@ func TestIncludeRequest_All(t *testing.T) {
 	for s := range req.All() {
 		got = append(got, s)
 	}
+	expected := []string{"a.b.c", "d"}
+	if !cmp.Equal(got, expected, ignoreSort) {
+		t.Errorf("All() returned %v, expected %v", got, expected)
+	}
+}
+
+func TestIncludeSchema_All(t *testing.T) {
+	schema := NewIncludeSchema().Allow("a.b.c", "d")
+	got := slices.Collect(schema.All())
 	expected := []string{"a.b.c", "d"}
 	if !cmp.Equal(got, expected, ignoreSort) {
 		t.Errorf("All() returned %v, expected %v", got, expected)

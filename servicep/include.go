@@ -39,6 +39,7 @@ func (i *IncludeSchema) IsAllowed(s string) bool {
 }
 
 // Include returns a new include request against this schema.
+// This automatically ignores associations that are not allowed by the schema.
 func (i *IncludeSchema) Include(associations ...string) *IncludeRequest {
 	return NewIncludeRequest().SetSchema(i).Include(associations...)
 }
@@ -53,7 +54,7 @@ func (i *IncludeSchema) FromRequest(r *IncludeRequest) *IncludeRequest {
 	return NewIncludeRequest().SetSchema(i).Include(slices.Collect(r.All())...)
 }
 
-// All returns an iterator over all user set includes
+// All returns an iterator over all user set allows
 func (i *IncludeSchema) All() iter.Seq[string] {
 	return func(yield func(string) bool) {
 		if i == nil {
