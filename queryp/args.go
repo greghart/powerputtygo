@@ -15,9 +15,14 @@ type Args struct {
 
 type Placeholderer func(i int) string
 
-func NewArgs() *Args {
+func NewArgs(_capacity ...int) *Args {
+	capacity := 0
+	if len(_capacity) == 1 {
+		capacity = _capacity[0]
+	}
 	return &Args{
 		placeholderer: SqlitePlaceholderer, // Default to SQLite placeholder style
+		args:          make([]any, 0, capacity),
 	}
 }
 
