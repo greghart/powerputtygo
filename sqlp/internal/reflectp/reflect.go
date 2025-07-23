@@ -43,6 +43,10 @@ func (f *Field) Fields() *Fields {
 	return nil
 }
 
+func (f *Field) IsEmbeddedStruct() bool {
+	return f != nil && f.Fields().IsEmbeddedStruct()
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Fields represents the fields of a struct.
@@ -175,17 +179,21 @@ func (f *Fields) Rows(rows *sql.Rows) (*FieldsRows, error) {
 	return NewFieldsRows(f, rows)
 }
 
+func (f *Fields) IsEmbeddedStruct() bool {
+	return f != nil && len(f.ByColumnName) > 0
+}
+
 // WriteFields returns the fields that can be written to (ie. are actual columns in table).
 // This is based on struct tags and heuristics around anonymous embeds.
 func (f *Fields) Writable() map[string]*Field {
 	out := make(map[string]*Field, len(f.ByColumnName))
 	for col, field := range f.ByColumnName {
-		// Embedded structs arent' columns (unless they're promoted, which happened already)
-		if field.Fields() != nil {
+		// Embedded structs aren't columns (unless they're promoted, which happened already)
+		if field.Fields().IsEmbeddedStruct() {
 			continue
 		}
 		// read only fields are not written.
-		if field.ReadOnly || field.Fields() != nil {
+		if field.ReadOnly {
 			continue
 		}
 		out[col] = field

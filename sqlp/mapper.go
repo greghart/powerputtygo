@@ -1,6 +1,9 @@
 package sqlp
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Mapper powers generic, non reflective mappings of column names to struct fields
 type Mapper[E any] map[string]Mapping[*E]
@@ -19,12 +22,16 @@ func (m Mapper[E]) Addr(e *E, col string) (any, bool) {
 
 // MergeMappers merges mappers of different types, to setup a sub mapper in a parent/child.
 func MergeMappers[E, T any](m1 Mapper[E], m2 Mapper[T], ns string, get func(*E) *T) Mapper[E] {
+	if ns != "" && !strings.HasSuffix(ns, "_") {
+		ns += "_"
+	}
+
 	out := make(Mapper[E], len(m1)+len(m2))
 	for k, mapping := range m1 {
 		out[k] = mapping
 	}
 	for k, mapping := range m2 {
-		out[fmt.Sprintf("%v_%v", ns, k)] = func(e *E) any {
+		out[fmt.Sprintf("%v%v", ns, k)] = func(e *E) any {
 			t := get(e)
 			return mapping(t)
 		}

@@ -8,13 +8,17 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func TestNewMapper(t *testing.T) {
+func TestMapper_Addr(t *testing.T) {
 	p := person{
 		ID:        1,
 		FirstName: "Joe",
 		Child: &person{
 			ID:        2,
 			FirstName: "Bob",
+			Child: &person{
+				ID:        3,
+				FirstName: "Lad",
+			},
 		},
 	}
 	tests := []struct {
@@ -26,6 +30,7 @@ func TestNewMapper(t *testing.T) {
 		{"first_name", &p.FirstName, "Joe"},
 		{"child_id", &p.Child.ID, int64(2)},
 		{"child_first_name", &p.Child.FirstName, "Bob"},
+		{"child_child_first_name", &p.Child.Child.FirstName, "Lad"},
 		{"pet_id", nil, int64(0)}, // Pet is not set, so no addr can be expected
 	}
 	for _, test := range tests {

@@ -12,20 +12,22 @@ import (
 // Repository provides a data access layer for a specific entity
 type Repository[E any] struct {
 	*DB
-	entity E
-	table  string
-	t      reflect.Type
-	mapper Mapper[E]
+	entity     E
+	table      string
+	t          reflect.Type
+	mapper     Mapper[E]
+	identifier Identifier[*E]
 }
 
 func NewRepository[E any](db *DB, table string) *Repository[E] {
 	var entity E
 	return &Repository[E]{
-		DB:     db,
-		entity: entity,
-		table:  table,
-		t:      reflect.TypeOf(entity),
-		mapper: nil,
+		DB:         db,
+		entity:     entity,
+		table:      table,
+		t:          reflect.TypeOf(entity),
+		mapper:     nil,
+		identifier: nil,
 	}
 }
 
@@ -38,9 +40,18 @@ func (r *Repository[E]) Validate() error {
 	return nil
 }
 
+func (r *Repository[E]) WithIdentifier(identifier func(e *E) any) *Repository[E] {
+	if identifier == nil {
+		return r
+	}
+	r.identifier = NewPKIdentifier[*E]("id", identifier)
+	return r
+}
+
 // SetMapper sets a custom column mapper which will be used for all queries instead of reflection.
-func (r *Repository[E]) SetMapper(mapper Mapper[E]) {
+func (r *Repository[E]) WithMapper(mapper Mapper[E]) *Repository[E] {
 	r.mapper = mapper
+	return r
 }
 
 // Find retrieves an entity by its ID, assuming `id` is the primary key.
@@ -90,10 +101,13 @@ func (r *Repository[E]) Insert(ctx context.Context, e E) (sql.Result, error) {
 	return Insert(ctx, r.DB, r.table, e)
 }
 
-func (r *Repository[E]) Update(ctx context.Context, e E) (sql.Result, error) {
-	idable, ok := any(e).(Identifiable)
-	if !ok {
-		return nil, fmt.Errorf("entity %T does not implement Identifiable interface", e)
+func (r *Repository[E]) InsertBulk(ctx context.Context, entities []E) (sql.Result, error) {
+	return InsertBulk(ctx, r.DB, r.table, entities)
+}
+
+func (r *Repository[E]) Update(ctx context.Context, e *E) (sql.Result, error) {
+	if r.identifier == nil {
+		return nil, fmt.Errorf("repository %T does not have an Identifier implementation", e)
 	}
-	return Update(ctx, r.DB, r.table, idable)
+	return Update(ctx, r.DB, r.table, e, r.identifier)
 }

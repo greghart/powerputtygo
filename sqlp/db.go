@@ -212,6 +212,9 @@ func Insert[E any](ctx context.Context, db *DB, table string, e E) (sql.Result, 
 		strings.Join(columns, ", "),
 		strings.Join(placeholders, ", "),
 	)
+	if len(columns) == 0 {
+		query = fmt.Sprintf("INSERT INTO %s DEFAULT VALUES", table)
+	}
 	result, err := db.Exec(ctx, query, args.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert: %w", err)
@@ -219,8 +222,79 @@ func Insert[E any](ctx context.Context, db *DB, table string, e E) (sql.Result, 
 	return result, nil
 }
 
-func Update[E Identifiable](ctx context.Context, db *DB, table string, e E) (sql.Result, error) {
-	val := reflect.ValueOf(e)
+// InsertBulk is a convenience function to insert multiple entities into the database.
+// Uses sqlite placeholderer by default, and is more just here for reference --
+// re-implementing yourself is recommended for performance and flexibility.
+// TODO: Figure out how to inject a custom placeholderer into this API.
+// Should probably just refactor to use a struct of options here?
+func InsertBulk[E any](ctx context.Context, db *DB, table string, entities []E) (sql.Result, error) {
+	if len(entities) == 0 {
+		return nil, nil
+	}
+
+	val := reflect.ValueOf(entities[0])
+	structFields, err := reflectp.FieldsFactory(val.Type())
+	if err != nil {
+		return nil, fmt.Errorf("failed to reflect fields for %T: %w", entities[0], err)
+	}
+
+	// build columns to insert
+	fieldsByColumn := structFields.Writable()
+	columns := make([]string, 0, len(fieldsByColumn))
+	fields := make([]*reflectp.Field, 0, len(fieldsByColumn))
+	for col, field := range fieldsByColumn {
+		columns = append(columns, fmt.Sprintf("\"%s\"", col))
+		fields = append(fields, field)
+	}
+	if len(columns) == 0 {
+		return nil, fmt.Errorf("cannot bulk insert default values into %s", table)
+	}
+
+	// build multiple values tuples out of entities
+	values := strings.Builder{}
+	args := queryp.NewArgs(len(fieldsByColumn) * len(entities))
+	for i := range entities {
+		if i != 0 {
+			values.WriteString(",\n")
+		}
+		values.WriteRune('(')
+		val := reflect.ValueOf(entities[i])
+		firstColumn := true
+		for _, field := range fields {
+			colValue, err := val.FieldByIndexErr(field.Index)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get field %s from entity %T: %w", field.Column, entities[0], err)
+			}
+			if !firstColumn {
+				values.WriteRune(',')
+			}
+			firstColumn = false
+			values.WriteString(args.Add(colValue.Interface()))
+		}
+		values.WriteRune(')')
+	}
+
+	query := fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES %s",
+		table,
+		strings.Join(columns, ", "),
+		values.String(),
+	)
+	if len(columns) == 0 {
+		query = fmt.Sprintf("INSERT INTO %s DEFAULT VALUES", table)
+	}
+	result, err := db.Exec(ctx, query, args.Args()...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bulk insert: %w", err)
+	}
+	return result, nil
+}
+
+func Update[E any](ctx context.Context, db *DB, table string, e *E, ider Identifier[*E]) (sql.Result, error) {
+	if e == nil {
+		return nil, fmt.Errorf("cannot update nil entity")
+	}
+	val := reflect.ValueOf(*e)
 	fields, err := reflectp.FieldsFactory(val.Type())
 	if err != nil {
 		return nil, fmt.Errorf("failed to reflect fields for %T: %w", e, err)
@@ -229,7 +303,7 @@ func Update[E Identifiable](ctx context.Context, db *DB, table string, e E) (sql
 	sets := make([]string, 0, len(fields.ByColumnName))
 	args := queryp.NewArgs()
 	for col, field := range fields.Writable() {
-		if col == e.IDColumn() {
+		if col == ider.IDColumn() {
 			continue // never write id column
 		}
 		colValue, err := val.FieldByIndexErr(field.Index)
@@ -244,8 +318,8 @@ func Update[E Identifiable](ctx context.Context, db *DB, table string, e E) (sql
 		"UPDATE %s SET %s WHERE %s = %s",
 		table,
 		strings.Join(sets, ", "),
-		e.IDColumn(),
-		args.Add(e.ID()),
+		ider.IDColumn(),
+		args.Add(ider.ID(e)),
 	)
 	result, err := db.Exec(ctx, query, args.Args()...)
 	if err != nil {
@@ -254,10 +328,29 @@ func Update[E Identifiable](ctx context.Context, db *DB, table string, e E) (sql
 	return result, nil
 }
 
-// Identifiable helps us constrain generics that can be identified with some sort of primary key.
-type Identifiable interface {
-	ID() any          // ID returns the unique identifier for the entity.
-	IDColumn() string // IDColumn returns the name of the column that contains the ID.
+// Identifier helps us identify entities for templated updates and inserts
+type Identifier[E any] interface {
+	// GetID returns the unique identifier for the entity.
+	ID(e E) any
+	// GetIDColumn returns the name of the column that contains the ID.
+	IDColumn() string
+}
+
+type PKIdentifier[E any] struct {
+	column string
+	getID  func(e E) any
+}
+
+func NewPKIdentifier[E any](column string, getID func(e E) any) *PKIdentifier[E] {
+	return &PKIdentifier[E]{column, getID}
+}
+
+func (pk *PKIdentifier[E]) ID(e E) any {
+	return pk.getID(e)
+}
+
+func (pk *PKIdentifier[E]) IDColumn() string {
+	return pk.column
 }
 
 ////////////////////////////////////////////////////////////////////////////////

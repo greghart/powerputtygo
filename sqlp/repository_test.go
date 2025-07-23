@@ -104,21 +104,21 @@ func TestRepository_Update(t *testing.T) {
 
 	grandparent := grandchildrenSetup(ctx, db)
 
-	t.Run("non-identifiable entity", func(t *testing.T) {
+	t.Run("non-identifiable repo", func(t *testing.T) {
 		repository := NewRepository[person](db, "people")
 
 		p := grandparent
 		p.FirstName = "UPDATED"
-		_, err := repository.Update(ctx, p)
-		errcmp.MustMatch(t, err, "does not implement Identifiable")
+		_, err := repository.Update(ctx, &p)
+		errcmp.MustMatch(t, err, "does not have an Identifier implementation")
 	})
 
 	t.Run("identifiable entity", func(t *testing.T) {
-		repository := NewRepository[personID](db, "people")
+		repository := NewRepository[personID](db, "people").WithIdentifier(func(e *personID) any { return e.ID })
 
 		p := personID{grandparent}
 		p.FirstName = "UPDATED"
-		_, err := repository.Update(ctx, p)
+		_, err := repository.Update(ctx, &p)
 		errcmp.MustMatch(t, err, "", "could not update")
 
 		updated, err := repository.Get(ctx, "SELECT * FROM people WHERE id = ?", grandparent.ID)

@@ -76,8 +76,9 @@ func (rs *ReflectDestScanner) Scan(dest any) error {
 
 type MappingScanner[E any] struct {
 	*sql.Rows
-	cols   []string
-	mapper Mapper[E]
+	cols    []string
+	targets []any // address targets for scanning
+	mapper  Mapper[E]
 }
 
 func NewMappingScanner[E any](rows *sql.Rows, mapper Mapper[E]) *MappingScanner[E] {
@@ -96,16 +97,20 @@ func (ms *MappingScanner[E]) Scan() (E, error) {
 			return e, fmt.Errorf("failed to get columns: %w", err)
 		}
 		ms.cols = cols
+		ms.targets = make([]any, len(ms.cols))
 	}
 
-	targets := make([]any, len(ms.cols))
+	fallback := new(any)
 	for i, c := range ms.cols {
 		addr, ok := ms.mapper.Addr(&e, c)
 		if !ok {
-			return e, fmt.Errorf("failed to get mapping for %v", c)
+			// TODO: Options to make this an error
+			// return e, fmt.Errorf("failed to get mapping for %v", c)
+			ms.targets[i] = fallback
+		} else {
+			ms.targets[i] = addr
 		}
-		targets[i] = addr
 	}
 
-	return e, ms.Rows.Scan(targets...)
+	return e, ms.Rows.Scan(ms.targets...)
 }
