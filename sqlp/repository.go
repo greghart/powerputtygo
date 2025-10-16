@@ -65,6 +65,17 @@ func (r *Repository[E]) Find(ctx context.Context, id int64) (*E, error) {
 	)
 }
 
+// Delete deletes an entity by its ID, assuming `id` is the primary key.
+// Note, this is setup for reference as much as usage. Such methods are trivial to write yourself,
+// rather than unnecessarily complicate struct tags to tag pks and other fields.
+func (r *Repository[E]) Delete(ctx context.Context, id int64) (sql.Result, error) {
+	return r.Exec(
+		ctx,
+		"DELETE FROM "+r.table+" WHERE id = ?",
+		id,
+	)
+}
+
 // Get functions very similarly to `sqlp.Get`, but obeys uses custom mapper, if any.
 func (r *Repository[E]) Get(ctx context.Context, q string, args ...any) (*E, error) {
 	var entity *E
